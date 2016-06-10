@@ -5,6 +5,7 @@ open System
 open System.Net.NetworkInformation
 open System.Net
 open System.Net.Sockets
+open FSharp.Control
 
 type private MemberStatus = 
     | Alive of IncarnationNumber
