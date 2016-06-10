@@ -34,6 +34,7 @@ let private waitForAck socketListener seqNr memb timeout =
     }
     |> Observable.await timeout
     |> Observable.map Option.isSome
+    |> Async.AwaitObservable
 
 let private sendPing seqNr memb state = async {
     let { PingTimeout = pingTimeout;
@@ -41,7 +42,7 @@ let private sendPing seqNr memb state = async {
           SocketListener = listener } = state
     
     do! Transport.encode (Ping seqNr) |> Transport.send socket (memb.Address)
-    let! acked = waitForAck listener seqNr memb pingTimeout |> Async.AwaitObservable
+    let! acked = waitForAck listener seqNr memb pingTimeout
     
     return acked
 }
@@ -56,7 +57,7 @@ let private sendPingRequest seqNr memb state = async {
     let members = MemberList.members memberList |> List.choose (fun (m, _) -> if m <> memb then Some m else None)
     
     do! members        
-        |> List.take (Math.Min(pingRequestGroupSize, List.length members - 1))
+        |> List.take (Math.Min(pingRequestGroupSize, List.length members))
         |> List.map send
         |> List.toSeq
         |> Async.Parallel
@@ -78,18 +79,18 @@ let private handlePing seqNr endpoint ({ Local = local } as state) =
 
 let private ping seqNr state = 
     async { 
-        let { MemberList = memberList; 
+        let { MemberList = memberList;
               PeriodTimeout = periodTimeout;
               SocketListener = listener } = state
         let (memb, incarnation), state' = pickPingTarget state
         
-        let awaitForPeriodAck = waitForAck listener seqNr memb periodTimeout
+        let! awaitForPeriodAck = waitForAck listener seqNr memb periodTimeout |> Async.StartChild
         let! pingAcked = sendPing seqNr memb state
         let! acked = async {
             if pingAcked then return true
             else
                 do! sendPingRequest seqNr memb state
-                let! acked = awaitForPeriodAck |> Async.AwaitObservable
+                let! acked = awaitForPeriodAck
                 return acked
         }
 
@@ -112,6 +113,13 @@ let rec private pingLoop seqNr state = async {
     return! pingLoop (nextSeqNumber seqNr) state'
 }
 
+let private handle state (addr, msg) =
+    printfn "%A from %A" msg addr
+    match msg with
+    | Ping seqNr -> Async.Start(handlePing seqNr addr state)
+    | PingRequest(seqNr, memb) -> Async.Start(handlePingRequest seqNr memb addr state)
+    | _ -> ()
+
 type Config = 
     { Socket : Transport.Socket
       Local : Member
@@ -124,7 +132,7 @@ let init config =
     let listener = Transport.receive config.Socket 
                    |> Observable.choose (fun (addr, bytes) -> maybe { let! msg = Transport.decode bytes
                                                                       return addr, msg })
-    
+
     let state = 
         { Socket = config.Socket
           SocketListener = listener
@@ -135,13 +143,7 @@ let init config =
           PingTimeout = config.PingTimeout
           PingRequestGroupSize = config.PingRequestGroupSize }
 
+    listener |> Observable.subscribe(handle state) |> ignore
     Async.Start(pingLoop 0UL state)
-    observe {
-        let! addr, msg = listener
-        match msg with
-        | Ping seqNr -> Async.Start(handlePing seqNr addr state)
-        | PingRequest(seqNr, memb) -> Async.Start(handlePingRequest seqNr memb addr state)
-        | _ -> ()
-    } |> ignore
 
     printfn "Failure detection system is running"

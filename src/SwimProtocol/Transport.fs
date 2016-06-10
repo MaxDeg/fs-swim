@@ -4,56 +4,15 @@ open System
 open System.IO
 open System.Net
 open System.Net.Sockets
-open System.Runtime.Serialization.Formatters.Binary
+open FSharp.Control.Reactive.Builders
+open MsgPack
+open FSharpx.Control
 
 type TransportMessage = IPEndPoint * byte []
 
 type Socket = 
     private
     | Socket of UdpClient * IObservable<TransportMessage>
-
-module private Observable = 
-    [<CustomEquality; CustomComparison>]
-    type private Subscriber = 
-        | Subscriber of IObserver<TransportMessage>
-        override x.Equals other = Object.Equals(x, other)
-        override x.GetHashCode() = hash x
-        interface IComparable with
-            member x.CompareTo other = 
-                match other with
-                | :? Subscriber as obs -> 
-                    if Object.Equals(x, obs) then 0
-                    else 1
-                | _ -> invalidArg "other" "cannot compare values of different types"
-    
-    type private AgentRequest = 
-        | Subscribe of Subscriber
-        | UnSubscribe of Subscriber
-        | Send of TransportMessage
-    
-    let private handle observers = 
-        function 
-        | Subscribe obs -> Set.add obs observers
-        | UnSubscribe obs -> Set.remove obs observers
-        | Send msg -> 
-            Set.iter (fun (Subscriber obs) -> obs.OnNext msg) observers
-            observers
-    
-    let private agent = 
-        MailboxProcessor<AgentRequest>.Start(fun inbox -> 
-            let rec loop observers = async { let! msg = inbox.Receive()
-                                             return! handle observers msg |> loop }
-            loop Set.empty)
-    
-    let private unsubscribe obs = UnSubscribe obs |> agent.Post
-    
-    let subscribe obs = 
-        let observer = Subscriber obs
-        Subscribe observer |> agent.Post
-        { new IDisposable with
-              member __.Dispose() = unsubscribe observer }
-    
-    let send msg = Send msg |> agent.Post
 
 let private listener (udp : UdpClient) callback = 
     async { 
@@ -63,47 +22,93 @@ let private listener (udp : UdpClient) callback =
     }
 
 let create port = 
-    let udp = new UdpClient(port = port)
-    
-    let observable = 
-        { new IObservable<TransportMessage> with
-              member x.Subscribe obs = Observable.subscribe obs }
-    listener udp Observable.send |> Async.Start
-    Socket(udp, observable)
+    let udp = new UdpClient(port = port)    
+    let subject = new Subject<TransportMessage>()
+    subject.OnNext |> listener udp |> Async.Start
 
-let send (Socket(udp, _)) addr buffer = 
+    Socket(udp, subject)
+
+let send (Socket(udp, _)) addr buffer =
     udp.SendAsync(buffer, buffer.Length, addr)
     |> Async.AwaitTask
     |> Async.Ignore
 
 let receive (Socket(_, observable)) = observable
 
-let private serialize msg = 
-    let binFormatter = new BinaryFormatter()
-    use stream = new MemoryStream()
-    binFormatter.Serialize(stream, msg)
-    stream.ToArray()
-
-let private encodeMember m = ()
 let private encodeEvents events = ()
-let private encodePing p = [||]
-let private encodePingRequest p = [||]
-let private encodeAck p = [||]
 
-let private decodeMember bytes = ()
+let private encodeMember memb = 
+    Array.concat [
+        memb.Name |> Packer.packString
+        memb.Address.Address.ToString()  |> Packer.packString
+        memb.Address.Port |> Packer.packInt
+    ]
+
+let private encodePing seqNr = 
+    seqNr |> Packer.packUInt64
+
+let private encodePingRequest seqNr memb =
+    Array.concat [
+        seqNr |> Packer.packUInt64
+        encodeMember memb
+    ]
+
+let private encodeAck seqNr memb =
+    Array.concat [
+        seqNr |> Packer.packUInt64
+        encodeMember memb
+    ]
+
 let private decodeEvents events = ()
-let private decodePing bytes = None
-let private decodePingRequest bytes = None
-let private decodeAck bytes = None
+
+let private (|Int32|_|) value =
+    match value with
+    | Value.Int8 i -> Some(int32 i)
+    | Value.Int16 i -> Some(int32 i)
+    | Value.Int32 i -> Some(i)
+    | _ -> None
+
+let private (|UInt64|_|) value =
+    match value with
+    | Value.UInt8 i -> Some(uint64 i)
+    | Value.UInt16 i -> Some(uint64 i)
+    | Value.UInt32 i -> Some(uint64 i)
+    | Value.UInt64 i -> Some i
+    | _ -> None
+
+let private (|Member|_|) values =
+    match values with
+    | [ Value.String name; Value.String ip; Value.UInt16 port ] ->
+        Some { Name = name
+               Address = new IPEndPoint(IPAddress.Parse(ip), int port) }
+    | _ -> None
+
+let private decodePing bytes =
+    match Unpacker.unpack bytes with
+    | [| UInt64 seqNr |] -> Ping seqNr |> Some
+    | _ -> None
+
+let private decodePingRequest bytes =
+    match Unpacker.unpack bytes |> List.ofArray with
+    | UInt64 seqNr :: Member(memb) -> 
+        PingRequest(seqNr, memb) |> Some 
+    | _ -> None
+
+let private decodeAck bytes =
+    match Unpacker.unpack bytes |> List.ofArray with
+    | UInt64 seqNr :: Member(memb) -> 
+        Ack(seqNr, memb) |> Some 
+    | _ -> None
 
 let encode msg : byte[] = 
     match msg with
-    | Ping s -> encodePing msg
-    | PingRequest(s, m) -> encodePingRequest msg
-    | Ack(s, m) -> encodeAck msg
+    | Ping s -> encodePing s |> Packer.packExt 0y
+    | PingRequest(s, m) -> encodePingRequest s m |> Packer.packExt 1y
+    | Ack(s, m) -> encodeAck s m |> Packer.packExt 2y
 
-let decode bytes: DetectionMessage option = 
-    [ decodeAck
-      decodePing
-      decodePingRequest ]
-    |> List.tryPick (fun f -> f bytes)
+let decode bytes =
+    match Unpacker.unpack bytes with
+    | [| Value.Ext(id, rest) |] when id = 0y -> decodePing rest
+    | [| Value.Ext(id, rest) |] when id = 1y -> decodePingRequest rest
+    | [| Value.Ext(id, rest) |] when id = 2y -> decodeAck rest
+    | _ -> None

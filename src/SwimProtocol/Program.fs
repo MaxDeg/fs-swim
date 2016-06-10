@@ -1,7 +1,5 @@
 ﻿open SwimProtocol
 open System
-open System.Net
-open System.Net.Sockets
 
 let randomPort() = 1337
 let parseEndpoint (endpoint : string) =
@@ -11,24 +9,16 @@ let parseEndpoint (endpoint : string) =
 [<EntryPoint>]
 let main argv = 
     printfn "Swim Protocol starting"
-    let port = randomPort()
+//    let port = randomPort()
+//
+//    argv
+//    |> Array.map parseEndpoint
+//    |> Array.toList
+//    |> Swim.init { Swim.defaultConfig with Port = port } 
 
-    let local = MemberList.makeLocal port
-    let transport = Transport.create port
-    let disseminator = EventsDissemination.create()
-    let memberList = 
-        if Array.isEmpty argv then
-            MemberList.create disseminator
-        else
-            let h, p = argv.[0] |> parseEndpoint
-            MemberList.createWith disseminator [ MemberList.makeMember h p ]
 
-    FailureDetection.init { Socket = transport
-                            Local = local
-                            MemberList = memberList
-                            PeriodTimeout = TimeSpan.FromSeconds 2.0
-                            PingTimeout = TimeSpan.FromMilliseconds 100.0
-                            PingRequestGroupSize = 3 }
+    let node1 = Swim.init { Swim.defaultConfig with Port = 1337 } []
+    let node2 = Swim.init { Swim.defaultConfig with Port = 1338 } [ ("mdg-7", 1337) ]
     
     printfn "Swim Protocol started"
     Console.ReadKey() |> ignore

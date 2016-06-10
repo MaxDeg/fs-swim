@@ -14,6 +14,7 @@ type private MemberStatus =
 
 type private MemberList = 
     { Members : Map<Member, MemberStatus>
+      SuspectTimeout: TimeSpan
       DeadMembers : Set<Member>
       Disseminator : EventsDissemination.T }
 
@@ -63,11 +64,11 @@ let private handleRevive memb incarnation ({ Members = members } as memberList) 
         return updateMembers memb newStatus memberList
     }
 
-let private handleSuspect memb incarnation ({ Members = members } as memberList) (agent : MailboxProcessor<Request>) = 
+let private handleSuspect memb incarnation ({ Members = members; SuspectTimeout = suspectTimeout } as memberList) (agent : MailboxProcessor<Request>) = 
     maybe { 
         let! status = Map.tryFind memb members
         let! newStatus = trySuspect status incarnation
-        TimeSpan.FromMinutes 5.0 |> agent.PostAfter(Kill(memb, incarnation))
+        suspectTimeout |> agent.PostAfter(Kill(memb, incarnation))
         return updateMembers memb newStatus memberList
     }
 
@@ -92,22 +93,22 @@ let private handle agent memberList msg =
         None
     |> getOrElse memberList
 
-let createWith disseminator members = 
+let createWith disseminator suspectTimeout members = 
     let members' = members |> List.map (fun m -> m, Alive 0UL) |> Map.ofList
     let memberList = 
         { Members = members'
+          SuspectTimeout = suspectTimeout
           DeadMembers = Set.empty
           Disseminator = disseminator }
     
-    let agent = new MailboxProcessor<Request>(fun box -> 
+    let agent = MailboxProcessor<Request>.Start(fun box -> 
         let rec loop memberList = async { let! msg = box.Receive()
                                           return! handle box memberList msg |> loop }
         loop memberList)
-    
-    agent.Start()
+
     T agent
 
-let create disseminator = createWith disseminator []
+let create suspectTimeout disseminator = createWith disseminator suspectTimeout []
 let alive (T agent) memb incarnation = Revive(memb, incarnation) |> agent.Post
 let suspect (T agent) memb incarnation = Suspect(memb, incarnation) |> agent.Post
 let dead (T agent) memb incarnation = Kill(memb, incarnation) |> agent.Post
