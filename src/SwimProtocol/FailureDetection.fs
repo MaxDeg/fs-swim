@@ -102,18 +102,22 @@ let private ping seqNr state =
         let { MemberList = memberList
               PeriodTimeout = periodTimeout } = state
         let (memb, incarnation), state' = pickPingTarget state
-        
-        let! awaitForPeriodAck = waitForAck seqNr memb periodTimeout state |> Async.StartChild
-        let! pingAcked = sendPing seqNr memb state
-        let! acked = async {
-            if pingAcked then return true
-            else
-                do! sendPingRequest seqNr memb state
-                let! acked = awaitForPeriodAck
-                return acked
-        }
+        printfn "Ping %A" seqNr
+        let! awaitForPeriodAck = 
+            [ waitForAck seqNr memb periodTimeout state
+              async { do! int periodTimeout.TotalMilliseconds |> Async.Sleep
+                      return false } ]
+            |> Async.Parallel
+            |> Async.StartChild
 
-        if acked then
+        let! pingAcked = sendPing seqNr memb state
+
+        if not pingAcked then
+            do! sendPingRequest seqNr memb state
+
+        let! acked = awaitForPeriodAck
+
+        if Array.head acked then
             MemberList.alive memberList memb incarnation
         else
             MemberList.suspect memberList memb incarnation
@@ -133,7 +137,7 @@ let rec private pingLoop seqNr state = async {
 }
 
 let private handle addr msg ackPusher state = async {
-    printfn "Receiving Message > %A" msg
+    printfn "Handle msg %A" msg
     match msg with
     | Ping seqNr -> 
         return! handlePing seqNr addr state
@@ -170,6 +174,6 @@ let init config =
                                                          return addr, msg })
         |> AsyncSeq.iterAsync (fun (addr, msg) -> handle addr msg push state))
     
-    Async.Start(pingLoop 0UL state)
+    Async.Start(pingLoop 255UL state)
 
     printfn "Failure detection system is running"

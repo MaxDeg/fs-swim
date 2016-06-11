@@ -21,7 +21,7 @@ let private encodeMember memb =
         memb.Address.Port |> Packer.packInt
     ]
 
-let encodePing seqNr = 
+let encodePing seqNr =
     seqNr |> Packer.packUInt64
 
 let encodePingRequest seqNr memb =
@@ -47,10 +47,10 @@ let private (|Int32|_|) value =
 
 let private (|UInt64|_|) value =
     match value with
-    | Value.UInt8 i -> Some(uint64 i)
-    | Value.UInt16 i -> Some(uint64 i)
-    | Value.UInt32 i -> Some(uint64 i)
     | Value.UInt64 i -> Some i
+    | Value.UInt32 i -> Some(uint64 i)
+    | Value.UInt16 i -> Some(uint64 i)
+    | Value.UInt8 i -> Some(uint64 i)
     | _ -> None
 
 let private (|Member|_|) values =
@@ -61,31 +61,40 @@ let private (|Member|_|) values =
     | _ -> None
 
 let decodePing bytes =
+    printfn "Decode Ping %A" bytes
     match Unpacker.unpack bytes with
     | [| UInt64 seqNr |] -> Ping seqNr |> Some
     | _ -> None
 
 let decodePingRequest bytes =
+    printfn "Decode PingRequest %A" bytes
     match Unpacker.unpack bytes |> List.ofArray with
     | UInt64 seqNr :: Member(memb) -> 
         PingRequest(seqNr, memb) |> Some 
     | _ -> None
 
 let decodeAck bytes =
+    printfn "Decode Ack %A" bytes
     match Unpacker.unpack bytes |> List.ofArray with
     | UInt64 seqNr :: Member(memb) -> 
         Ack(seqNr, memb) |> Some 
     | _ -> None
 
-let encode msg : byte[] = 
+let encode msg : byte[] =
     match msg with
     | Ping s -> encodePing s |> Packer.packExt 0y
     | PingRequest(s, m) -> encodePingRequest s m |> Packer.packExt 1y
     | Ack(s, m) -> encodeAck s m |> Packer.packExt 2y
 
 let decode bytes =
-    match Unpacker.unpack bytes with
-    | [| Value.Ext(id, rest) |] when id = 0y -> decodePing rest
-    | [| Value.Ext(id, rest) |] when id = 1y -> decodePingRequest rest
-    | [| Value.Ext(id, rest) |] when id = 2y -> decodeAck rest
-    | _ -> None
+    try
+        printfn "Decode %A" bytes
+        match Unpacker.unpack bytes with
+        | [| Value.Ext(id, rest) |] when id = 0y -> decodePing rest
+        | [| Value.Ext(id, rest) |] when id = 1y -> decodePingRequest rest
+        | [| Value.Ext(id, rest) |] when id = 2y -> decodeAck rest
+        | _ -> printfn "fail decode";None
+    with
+    | e -> 
+        printfn "Error %A" e
+        reraise()
