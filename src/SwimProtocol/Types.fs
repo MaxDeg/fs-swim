@@ -3,6 +3,8 @@
 open System
 open System.Net
 
+type Agent<'a> = MailboxProcessor<'a>
+
 type IncarnationNumber = uint64
 
 type PeriodSeqNumber = uint64
@@ -23,11 +25,6 @@ type Member =
             match other with
             | :? Member as o -> compare x.Name o.Name
             | _ -> invalidArg "other" "cannot compare values of different types"
-
-type DetectionMessage = 
-    | Ping of PeriodSeqNumber
-    | PingRequest of PeriodSeqNumber * Member
-    | Ack of PeriodSeqNumber * Member
 
 type MembershipEvent = 
     | Alive of Member * IncarnationNumber

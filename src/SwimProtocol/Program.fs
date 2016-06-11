@@ -18,7 +18,7 @@ let main argv =
 
 
     let node1 = Swim.init { Swim.defaultConfig with Port = 1337 } []
-    let node2 = Swim.init { Swim.defaultConfig with Port = 1338 } [ ("mdg-7", 1337) ]
+    let node2 = Swim.init { Swim.defaultConfig with Port = 1338 } [ ("mdg-ubuntu", 1337) ]
     
     printfn "Swim Protocol started"
     Console.ReadKey() |> ignore

@@ -105,11 +105,3 @@ module List =
         let length = List.length list
         let shuffled = shuffle' [| 0..length - 1 |] (length - 1)
         List.permute (fun i -> shuffled.[i]) list
-
-module Observable = 
-    open FSharp.Control.Reactive
-
-    let await (timeout : TimeSpan) = 
-        Observable.head
-        >> Observable.map Some
-        >> Observable.timeoutSpanOther timeout (Observable.single None)

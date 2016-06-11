@@ -26,15 +26,14 @@ let init config hosts =
           SuspectTimeout = suspectTimeout } = config
 
     let local = MemberList.makeLocal port
-    let transport = Transport.create port
     let disseminator = EventsDissemination.create()
     
-    let memberList = 
+    let memberList =
         hosts
         |> List.map (fun (h, p) -> MemberList.makeMember h p)
         |> MemberList.createWith disseminator suspectTimeout
 
-    FailureDetection.init { Socket = transport
+    FailureDetection.init { Port = port
                             Local = local
                             MemberList = memberList
                             PeriodTimeout = periodTimeout
