@@ -3,10 +3,6 @@ NUGET
   specs:
     FAKE (4.28)
     FSharp.Control.AsyncSeq (2.0.8)
-    FSharp.Control.Reactive (3.4.1)
-      Rx-Core (>= 2.2.5)
-      Rx-Interfaces (>= 2.2.5)
-      Rx-Linq (>= 2.2.5)
     FSharp.Core (4.0.0.1)
     FSharpx.Async (1.12)
       FSharp.Control.AsyncSeq
@@ -15,15 +11,3 @@ NUGET
     FSharpx.Extras (1.10.3)
       FSharpx.Async (>= 1.12)
       FSharpx.Collections (>= 1.10.1)
-    Rx-Core (2.2.5)
-      Rx-Interfaces (>= 2.2.5)
-    Rx-Interfaces (2.2.5)
-    Rx-Linq (2.2.5)
-      Rx-Core (>= 2.2.5)
-      Rx-Interfaces (>= 2.2.5)
-GITHUB
-  remote: Gab-km/msgpack-fsharp
-  specs:
-    MsgPack/MsgPack.fs (bc899f53746e75d4a8c5d9bdc087bd76b0755fed)
-    MsgPack/Packer.fs (bc899f53746e75d4a8c5d9bdc087bd76b0755fed)
-    MsgPack/Unpacker.fs (bc899f53746e75d4a8c5d9bdc087bd76b0755fed)
