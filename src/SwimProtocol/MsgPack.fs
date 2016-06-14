@@ -1,8 +1,10 @@
 module MsgPack 
 
 open System
+open System.Text
 
 module private DataType =
+    let PositiveFixNum = [| 0x00uy..0x7fuy |]
     let FixMap = [| 0x80uy..0x8fuy |]
     let FixArray = [| 0x90uy..0x9fuy |]
     let FixString = [| 0xa0uy..0xbfuy |]
@@ -68,6 +70,7 @@ module private DataType =
     let Map16 = 0xdeuy
     [<Literal>]
     let Map32 = 0xdfuy
+    let NegativeFixNum = [| 0xe0uy..0xffuy |]
 
 type Value =
     | Nil
@@ -134,7 +137,8 @@ module Packer =
 
         let res = pack bytes (Array.length bytes)
         match Array.length res with
-        | 1 -> [| yield DataType.UInt8; yield! res |]
+        | 1 when Array.exists ((=) res.[0]) DataType.PositiveFixNum -> res
+        | 1 -> [| yield DataType.UInt8; yield res.[0]  |]
         | 2 -> [| yield DataType.UInt16; yield! res |]
         | 4 -> [| yield DataType.UInt32; yield! res |]
         | 8 -> [| yield DataType.UInt64; yield! res |]
@@ -151,11 +155,32 @@ module Packer =
 
         let res = pack bytes (Array.length bytes)
         match Array.length res with
+        | 1 when Array.exists ((=) res.[0]) DataType.PositiveFixNum -> res
+        | 1 when Array.exists ((=) res.[0]) DataType.NegativeFixNum -> res
         | 1 -> [| yield DataType.Int8; yield! res |]
         | 2 -> [| yield DataType.Int16; yield! res |]
         | 4 -> [| yield DataType.Int32; yield! res |]
         | 8 -> [| yield DataType.Int64; yield! res |]
         | _ -> failwith "Cannot happen. failing encode int"
+
+    let private packString (str : string) =
+        let bytes = Encoding.UTF8.GetBytes str
+        match Array.length bytes with
+        | cnt when cnt < 32 -> 
+            [| yield DataType.FixString.[cnt / 2]
+               yield! bytes |] 
+        | cnt when cnt < pown 2 8 ->
+            [| yield DataType.String8
+               yield uint8 cnt
+               yield! bytes |] 
+        | cnt when cnt < pown 2 16 ->
+            [| yield DataType.String16
+               yield! uint16 cnt |> BitConverter.GetBytes
+               yield! bytes |] 
+        | cnt ->
+            [| yield DataType.String32
+               yield! uint32 cnt |> BitConverter.GetBytes
+               yield! bytes |] 
 
     let rec pack = function
         | Nil -> [| DataType.Nil |]
@@ -171,7 +196,7 @@ module Packer =
         | Int64 i -> i |> BitConverter.GetBytes |> packInt
         | Float32 f -> [| yield DataType.Float32; yield! BitConverter.GetBytes f |]
         | Float64 f -> [| yield DataType.Float64; yield! BitConverter.GetBytes f |]
-        | String s -> [|  |]
+        | String s -> packString s
         | Array a when Array.length a < 16 ->
             [| yield DataType.FixArray.[Array.length a]
                yield! Array.collect pack a |] 
