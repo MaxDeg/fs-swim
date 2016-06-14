@@ -1,7 +1,11 @@
 module MsgPack 
+
 open System
 
 module private DataType =
+    let FixMap = [| 0x80uy..0x8fuy |]
+    let FixArray = [| 0x90uy..0x9fuy |]
+    let FixString = [| 0xa0uy..0xbfuy |]
     [<Literal>] 
     let Nil = 0xc0uy
     [<Literal>] 
@@ -55,10 +59,7 @@ module private DataType =
     [<Literal>]
     let String16 = 0xdauy
     [<Literal>]
-    let String32 = 0xdbuy
-    
-    let FixArray s = 0x90uy + s
-    
+    let String32 = 0xdbuy    
     [<Literal>]
     let Array16 = 0xdcuy
     [<Literal>]
@@ -69,11 +70,16 @@ module private DataType =
     let Map32 = 0xdfuy
 
 type Value =
-        | Nil
-        | Bool of bool
-        | Int8 of sbyte | Int16 of int16 | Int32 of int | Int64 of int64
-        | UInt8 of byte | UInt16 of uint16 | UInt32 of uint32 | UInt64 of uint64
-        | Array of Value[]
+    | Nil
+    | Bool of bool
+    | Int8 of sbyte | Int16 of int16 | Int32 of int | Int64 of int64
+    | UInt8 of byte | UInt16 of uint16 | UInt32 of uint32 | UInt64 of uint64
+    | Float32 of float32 | Float64 of float
+    | String of string
+    | Binary of byte[]
+    | Array of Value[]
+    | Map of Map<Value, Value>
+    | Extension of int * byte[]
 
 [<AutoOpen>]
 module Values =
@@ -111,6 +117,11 @@ module Values =
         | Int64 i -> Some i
         | _ -> None
 
+    let (|Float32|_|) = function Float32 f -> Some f | _ -> None
+    let (|Float64|_|) = function 
+        | Float32 f -> float f |> Some
+        | Float64 f -> Some f
+        | _ -> None
 
 module Packer =
     let private packUInt bytes = 
@@ -146,25 +157,26 @@ module Packer =
         | 8 -> [| yield DataType.Int64; yield! res |]
         | _ -> failwith "Cannot happen. failing encode int"
 
-    
-    let pack =
-        let rec packValue = function
-            | Nil -> [| DataType.Nil |]
-            | Bool b when b -> [| DataType.True |]
-            | Bool _ -> [| DataType.False |]
-            | UInt8 b -> packUInt [| b |]
-            | UInt16 i -> i |> BitConverter.GetBytes |> packUInt
-            | UInt32 i -> i |> BitConverter.GetBytes |> packUInt
-            | UInt64 i -> i |> BitConverter.GetBytes |> packUInt
-            | Int8 b -> packInt [| byte b |]
-            | Int16 i -> i |> BitConverter.GetBytes |> packInt
-            | Int32 i -> i |> BitConverter.GetBytes |> packInt
-            | Int64 i -> i |> BitConverter.GetBytes |> packInt
-            | Array a when Array.length a < 16 ->
-                [| yield DataType.FixArray (Array.length a |> byte)
-                   yield! Array.collect packValue a |] 
+    let rec pack = function
+        | Nil -> [| DataType.Nil |]
+        | Bool b when b -> [| DataType.True |]
+        | Bool _ -> [| DataType.False |]
+        | UInt8 b -> packUInt [| b |]
+        | UInt16 i -> i |> BitConverter.GetBytes |> packUInt
+        | UInt32 i -> i |> BitConverter.GetBytes |> packUInt
+        | UInt64 i -> i |> BitConverter.GetBytes |> packUInt
+        | Int8 b -> packInt [| byte b |]
+        | Int16 i -> i |> BitConverter.GetBytes |> packInt
+        | Int32 i -> i |> BitConverter.GetBytes |> packInt
+        | Int64 i -> i |> BitConverter.GetBytes |> packInt
+        | Float32 f -> [| yield DataType.Float32; yield! BitConverter.GetBytes f |]
+        | Float64 f -> [| yield DataType.Float64; yield! BitConverter.GetBytes f |]
+        | String s -> [|  |]
+        | Array a when Array.length a < 16 ->
+            [| yield DataType.FixArray.[Array.length a]
+               yield! Array.collect pack a |] 
         
-        Value.Array >> packValue
+    let packArray = Value.Array >> pack
         
 module Unpacker =
     let private unpackUInt8 bytes =
@@ -206,7 +218,23 @@ module Unpacker =
                     let value, tail = bytes' |> Array.tail |> unpackUInt32
                     yield value
                     yield! tail |> decode'
-
+                | DataType.Float32 ->
+                    let tail = bytes' |> Array.tail
+                    yield BitConverter.ToSingle(tail, 0) |> Float32 
+                    yield! Array.skip 4 tail |> decode'
+                | DataType.Float64 ->
+                    let tail = bytes' |> Array.tail
+                    yield BitConverter.ToDouble(tail, 0) |> Float64 
+                    yield! Array.skip 8 tail |> decode'
+//                | DataType.String8
+//                | DataType.String16
+//                | DataType.String32
+//                | DataType.Array16
+//                | DataType.Array32
+                | b when Array.exists ((=) b) DataType.FixArray ->
+                    let cnt = int b
+                    yield bytes' |> Array.tail |> Array.take cnt |> decode' |> Array
+                    yield! Array.skip (cnt + 1) bytes' |> decode'
                 | _ -> failwith "Unknow encoding"
         |]
 
