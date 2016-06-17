@@ -2,3 +2,7 @@ source https://www.nuget.org/api/v2
 
 nuget FAKE
 nuget FSharpx.Extras
+github MaxDeg/fs-msgpack src/MsgPack/DataType.fs
+github MaxDeg/fs-msgpack src/MsgPack/Value.fs
+github MaxDeg/fs-msgpack src/MsgPack/Packer.fs
+github MaxDeg/fs-msgpack src/MsgPack/Unpacker.fs

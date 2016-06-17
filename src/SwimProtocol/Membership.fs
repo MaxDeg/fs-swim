@@ -1,4 +1,4 @@
-﻿module SwimProtocol.MemberList
+﻿module SwimProtocol.Membership
 
 open FSharpx.Option
 open System
@@ -6,35 +6,12 @@ open System.Net.NetworkInformation
 open System.Net
 open System.Net.Sockets
 open FSharp.Control
+open Dissemination
 
 type private MemberStatus = 
     | Alive of IncarnationNumber
     | Suspected of IncarnationNumber
     | Dead of IncarnationNumber
-
-type private MemberList = 
-    { Members : Map<Member, MemberStatus>
-      SuspectTimeout: TimeSpan
-      DeadMembers : Set<Member>
-      Disseminator : EventsDissemination.T }
-
-type private Request = 
-    | Revive of Member * IncarnationNumber
-    | Suspect of Member * IncarnationNumber
-    | Kill of Member * IncarnationNumber
-    | Members of AsyncReplyChannel<(Member * IncarnationNumber) list>
-
-type T = 
-    private
-    | T of MailboxProcessor<Request>
-
-let private disseminate memb status { Disseminator = disseminator } = 
-    let event = 
-        match status with
-        | Alive i -> MembershipEvent.Alive(memb, i)
-        | Suspected i -> MembershipEvent.Suspect(memb, i)
-        | Dead i -> MembershipEvent.Dead(memb, i)
-    EventsDissemination.push disseminator event
 
 let private tryRevive status nextIncarnation = 
     match status with
@@ -47,74 +24,102 @@ let private trySuspect status nextIncarnation =
     | Suspected i when nextIncarnation > i -> Some(Suspected nextIncarnation)
     | _ -> None
 
-let private updateMembers memb status ({ Members = members; DeadMembers = deadMembers } as memberList) = 
-    disseminate memb status memberList
-    
-    match status with
-    | Dead _ -> 
-        { memberList with Members = Map.remove memb members
-                          DeadMembers = Set.add memb deadMembers }
-    | _ -> 
-        { memberList with Members = Map.add memb status members }
+type private Request = 
+    | Revive of Member * IncarnationNumber
+    | Suspect of Member * IncarnationNumber
+    | Kill of Member * IncarnationNumber
+    | Members of AsyncReplyChannel<(Member * IncarnationNumber) list>
 
-let private handleRevive memb incarnation ({ Members = members } as memberList) = 
-    maybe { 
-        let status = Map.tryFind memb members |> getOrElse (Alive incarnation)
-        let! newStatus = tryRevive status incarnation
-        return updateMembers memb newStatus memberList
-    }
+type private State = 
+    { Members : Map<Member, MemberStatus>
+      SuspectTimeout: TimeSpan
+      DeadMembers : Set<Member>
+      Disseminator : EventDisseminator }
 
-let private handleSuspect memb incarnation ({ Members = members; SuspectTimeout = suspectTimeout } as memberList) (agent : MailboxProcessor<Request>) = 
-    maybe { 
-        let! status = Map.tryFind memb members
-        let! newStatus = trySuspect status incarnation
-        suspectTimeout |> agent.PostAfter(Kill(memb, incarnation))
-        return updateMembers memb newStatus memberList
-    }
+    with
+        member x.Disseminate memb status =
+            let event = 
+                match status with
+                | Alive i -> MembershipEvent.Alive(memb, i)
+                | Suspected i -> MembershipEvent.Suspect(memb, i)
+                | Dead i -> MembershipEvent.Dead(memb, i)
+            x.Disseminator.Push event
 
-let private handleDeath memb incarnation ({ Members = members } as memberList) = 
-    maybe { 
-        let! status = Map.tryFind memb members
-        match status with
-        | Suspected i when i <= incarnation -> return updateMembers memb (Dead incarnation) memberList
-        | _ -> ()
-    }
+        member x.UpdateMembers memb status =
+            x.Disseminate memb status    
+            match status with
+            | Dead _ -> 
+                { x with Members = x.Members |> Map.remove memb
+                         DeadMembers = x.DeadMembers |> Set.add memb }
+            | _ -> 
+                { x with Members = x.Members |> Map.add memb status }
 
-let private handle agent memberList msg = 
-    match msg with
-    | Revive(m, i) -> handleRevive m i memberList
-    | Suspect(m, i) -> handleSuspect m i memberList agent
-    | Kill(m, i) -> handleDeath m i memberList
-    | Members(rc) -> 
-        memberList.Members
-        |> Map.toList
-        |> List.map (function | m, Alive i | m, Suspected i | m, Dead i -> m, i)
-        |> rc.Reply
-        None
-    |> getOrElse memberList
+        member x.Revive memb incarnation = 
+            maybe {
+                let status = x.Members |> Map.tryFind memb |> getOrElse (Alive incarnation)
+                let! newStatus = tryRevive status incarnation
+                return x.UpdateMembers memb newStatus
+            }
+
+        member x.Suspect memb incarnation (agent : MailboxProcessor<Request>) = 
+            maybe { 
+                let! status = x.Members |> Map.tryFind memb
+                let! newStatus = trySuspect status incarnation
+                x.SuspectTimeout |> agent.PostAfter(Kill(memb, incarnation))
+                return x.UpdateMembers memb newStatus
+            }
+
+        member x.Death memb incarnation = 
+            maybe {
+                let! status = x.Members |> Map.tryFind memb
+                match status with
+                | Suspected i when i <= incarnation -> return x.UpdateMembers memb (Dead incarnation)
+                | _ -> ()
+            }
+
+type MemberList = 
+    private { Agent : MailboxProcessor<Request> }
+
+    with
+        member x.Alive memb incarnation =
+            Revive(memb, incarnation) |> x.Agent.Post
+        member x.Suspect memb incarnation =
+            Suspect(memb, incarnation) |> x.Agent.Post
+        member x.Dead memb incarnation =
+            Kill(memb, incarnation) |> x.Agent.Post
+
+        member x.Members() =
+            x.Agent.PostAndReply Members
 
 let createWith disseminator suspectTimeout members = 
+    let rec handle (box : MailboxProcessor<Request>) (state : State) = async {
+        let! msg = box.Receive()
+        let state' = 
+            match msg with
+            | Revive(m, i) -> state.Revive m i
+            | Suspect(m, i) -> state.Suspect m i box
+            | Kill(m, i) -> state.Death m i
+            | Members(rc) -> 
+                state.Members
+                |> Map.toList
+                |> List.map (function | m, Alive i | m, Suspected i | m, Dead i -> m, i)
+                |> rc.Reply
+                None
+            |> getOrElse state
+
+        return! handle box state'
+    }
+    
     let members' = members |> List.map (fun m -> m, Alive 0UL) |> Map.ofList
-    let memberList = 
+    let state = 
         { Members = members'
           SuspectTimeout = suspectTimeout
           DeadMembers = Set.empty
           Disseminator = disseminator }
     
-    let agent = MailboxProcessor<Request>.Start(fun box -> 
-        let rec loop memberList = async { let! msg = box.Receive()
-                                          return! handle box memberList msg |> loop }
-        loop memberList)
-
-    T agent
+    { Agent = MailboxProcessor<Request>.Start(fun box -> handle box state) }
 
 let create suspectTimeout disseminator = createWith disseminator suspectTimeout []
-let alive (T agent) memb incarnation = Revive(memb, incarnation) |> agent.Post
-let suspect (T agent) memb incarnation = Suspect(memb, incarnation) |> agent.Post
-let dead (T agent) memb incarnation = Kill(memb, incarnation) |> agent.Post
-
-let members (T agent) = 
-    agent.PostAndReply Members
 
 let makeMember host port =
     let ipAddress =

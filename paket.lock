@@ -1,6 +1,5 @@
 NUGET
   remote: https://www.nuget.org/api/v2
-  specs:
     FAKE (4.28)
     FSharp.Control.AsyncSeq (2.0.8)
     FSharp.Core (4.0.0.1)
@@ -11,3 +10,9 @@ NUGET
     FSharpx.Extras (1.10.3)
       FSharpx.Async (>= 1.12)
       FSharpx.Collections (>= 1.10.1)
+GITHUB
+  remote: MaxDeg/fs-msgpack
+    src/MsgPack/DataType.fs (1bbedf342082ea5719d76c66bdbeb6552194f789)
+    src/MsgPack/Packer.fs (1bbedf342082ea5719d76c66bdbeb6552194f789)
+    src/MsgPack/Unpacker.fs (1bbedf342082ea5719d76c66bdbeb6552194f789)
+    src/MsgPack/Value.fs (1bbedf342082ea5719d76c66bdbeb6552194f789)

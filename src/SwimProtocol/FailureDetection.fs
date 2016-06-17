@@ -5,125 +5,93 @@ open FSharp.Control
 open System
 open System.Net
 open Transport
+open Membership
 open Message
 
-
 type private State = 
-    { SendMessage: IPEndPoint -> Message -> Async<unit>
-      AckAwaiter: (Ack -> bool) -> TimeSpan -> Async<Ack option>
+    { Transport: Transport<Message>
       Local : Member
-      MemberList : MemberList.T
+      MemberList : MemberList
       PingTargets : (Member * IncarnationNumber) list
       PeriodTimeout : TimeSpan
       PingTimeout : TimeSpan
       PingRequestGroupSize : int }
 
-type AckMessage =
-| Push of Ack
-| Await of AsyncReplyChannel<Ack> * (Ack -> bool)
-     
-let private ackDispatcher () =
-    let agent = 
-        Agent<AckMessage>.Start(fun box ->
-            let rec loop channels = async {
-                let! msg = box.Receive()
+    with        
+        member x.PickPingTarget() =
+            match x.PingTargets with
+            | [] -> { x with PingTargets = x.MemberList.Members() |> List.shuffle }.PickPingTarget()
+            | head::tail -> head, { x with PingTargets = tail }
+
+        member x.WaitForAck seqNr memb (timeout : TimeSpan) = async {
+            let filterAck (addr, msg) = 
                 match msg with
-                | Push ack -> 
-                    let toSend, toKeep = List.partition (fun (_, filter) -> filter ack) channels
-                    toSend |> List.iter (fun (chan : AsyncReplyChannel<Ack>, _) -> chan.Reply(ack))
-                    
-                    return! loop toKeep
-                | Await(chan, filter) -> 
-                    return! (chan, filter) :: channels |> loop    
-            }
+                | Ack(ackSeqNr, ackMemb) as ack when seqNr = ackSeqNr && memb = ackMemb -> true
+                | _ -> false
+
+            let! ack = x.Transport.Receive()
+                        |> AsyncSeq.filter filterAck
+                        |> AsyncSeq.takeUntilSignal (int timeout.TotalMilliseconds |> Async.Sleep)
+                        |> AsyncSeq.tryFirst
             
-            loop List.empty)
-    
-    let push ack = Push ack |> agent.Post
-    let awaiter filter (timeout: TimeSpan) = 
-        agent.PostAndTryAsyncReply((fun chan -> Await(chan, filter)), int timeout.TotalMilliseconds)
-    
-    push, awaiter 
+            return Option.isSome ack
+        }
 
-let rec private pickPingTarget ({ MemberList = memberList; PingTargets = pingTargets } as state) = 
-    match pingTargets with
-    | [] -> pickPingTarget { state with PingTargets = MemberList.members memberList |> List.shuffle }
-    | head::tail -> head, { state with PingTargets = tail }
+        member x.SendPing seqNr memb = async {
+            do! Ping seqNr |> x.Transport.Send (memb.Address)
+            let! acked = x.WaitForAck seqNr memb x.PingTimeout
+            
+            return acked
+        }
 
-let private waitForAck seqNr memb (timeout: TimeSpan) { AckAwaiter = awaiter } = async {
-    let! ack = awaiter (fun (ackSeqNr, ackMemb) -> seqNr = ackSeqNr && memb = ackMemb) timeout
-    return Option.isSome ack
-}
+        member x.SendPingRequest seqNr memb = async {            
+            let send m = PingRequest(seqNr, memb) |> x.Transport.Send (m.Address)
+            
+            let members = x.MemberList.Members()
+                        |> List.choose (fun (m, _) -> if m <> memb then Some m else None)
+            
+            do! members        
+                |> List.take (Math.Min(x.PingRequestGroupSize, List.length members))
+                |> List.map send
+                |> List.toSeq
+                |> Async.Parallel
+                |> Async.Ignore
+        }
 
-let private sendPing seqNr memb state = async {
-    let { PingTimeout = pingTimeout;
-          SendMessage = sendMsg } = state
-    
-    do! Ping seqNr |> sendMsg (memb.Address)
-    let! acked = waitForAck seqNr memb pingTimeout state
-    
-    return acked
-}
+        member x.Ack (seqNr, from) endpoint = Ack(seqNr, from) |> x.Transport.Send endpoint
 
-let private sendPingRequest seqNr memb state = async {
-    let { MemberList = memberList
-          PingRequestGroupSize = pingRequestGroupSize
-          SendMessage = sendMsg } = state
-    
-    let send m = PingRequest(seqNr, memb) |> sendMsg (m.Address)
-    
-    let members = MemberList.members memberList 
-                  |> List.choose (fun (m, _) -> if m <> memb then Some m else None)
-    
-    do! members        
-        |> List.take (Math.Min(pingRequestGroupSize, List.length members))
-        |> List.map send
-        |> List.toSeq
-        |> Async.Parallel
-        |> Async.Ignore
-}
+        member x.HandlePing seqNr endpoint = x.Ack (seqNr, x.Local) endpoint
 
-let private ack (seqNr, from) endpoint { SendMessage = sendMsg } = 
-    Ack(seqNr, from) |> sendMsg endpoint
+        member x.HandlePingRequest (seqNr, memb) endpoint = async {
+            let! acked = x.SendPing seqNr memb
 
-let private handlePingRequest (seqNr, memb) endpoint state = async {
-    let! acked = sendPing seqNr memb state
+            if acked then
+                do! x.Ack (seqNr, memb) endpoint
+        }
 
-    if acked then
-        do! ack (seqNr, memb) endpoint state
-}
+        member x.Ping seqNr = async {
+            let (memb, incarnation), state' = x.PickPingTarget()
 
-let private handlePing seqNr endpoint ({ Local = local } as state) =
-    ack (seqNr, local) endpoint state
+            let! awaitForPeriodAck = 
+                [ x.WaitForAck seqNr memb x.PeriodTimeout
+                  Async.Delay false x.PeriodTimeout ]
+                |> Async.Parallel
+                |> Async.StartChild
 
+            let! pingAcked = x.SendPing seqNr memb
+            if not pingAcked then
+                do! x.SendPingRequest seqNr memb
 
-let private ping seqNr state = 
-    async {
-        let { MemberList = memberList
-              PeriodTimeout = periodTimeout } = state
-        let (memb, incarnation), state' = pickPingTarget state
-        printfn "Ping %A" seqNr
-        let! awaitForPeriodAck = 
-            [ waitForAck seqNr memb periodTimeout state
-              async { do! int periodTimeout.TotalMilliseconds |> Async.Sleep
-                      return false } ]
-            |> Async.Parallel
-            |> Async.StartChild
+            let! acked = awaitForPeriodAck
+            if Array.head acked then
+                printfn "Ping %A successfully" seqNr
+                x.MemberList.Alive memb incarnation
+            else
+                printfn "Failed to ping %A" seqNr
+                x.MemberList.Suspect memb incarnation
 
-        let! pingAcked = sendPing seqNr memb state
-
-        if not pingAcked then
-            do! sendPingRequest seqNr memb state
-
-        let! acked = awaitForPeriodAck
-
-        if Array.head acked then
-            MemberList.alive memberList memb incarnation
-        else
-            MemberList.suspect memberList memb incarnation
-
-        return state'
-    }
+            return state'
+        }
 
 let private nextSeqNumber seqNr =
     if seqNr < UInt64.MaxValue then
@@ -131,49 +99,47 @@ let private nextSeqNumber seqNr =
     else
         0UL
 
-let rec private pingLoop seqNr state = async {
-    let! state' = ping seqNr state
+let rec private pingLoop seqNr (state : State) = async {
+    let! state' = state.Ping seqNr
     return! pingLoop (nextSeqNumber seqNr) state'
 }
 
-let private handle addr msg ackPusher state = async {
-    printfn "Handle msg %A" msg
+let private handle addr msg (state : State) = async {
     match msg with
     | Ping seqNr -> 
-        return! handlePing seqNr addr state
+        return! state.HandlePing seqNr addr
     | PingRequest pingRequest -> 
-        return! handlePingRequest pingRequest addr state
-    | Ack ack -> ackPusher ack 
+        return! state.HandlePingRequest pingRequest addr
+    | _ -> ()
 }
 
 type Config = 
     { Port: int
       Local : Member
-      MemberList : MemberList.T
+      MemberList : MemberList
       PeriodTimeout : TimeSpan
       PingTimeout : TimeSpan
       PingRequestGroupSize : int }
 
 let init config =
-    let sender, receiver = Transport.create config.Port
-    let push, awaiter = ackDispatcher()
+    let serializer = { new ISerializer<Message> with
+                       member __.Serialize msg = Message.encode msg
+                       member __.Deserialize bytes = Message.decode bytes }
+    let transport = Transport.create config.Port serializer
     
     let state = 
-        { SendMessage = (fun addr msg -> Message.encode msg |> sender addr)
-          AckAwaiter = awaiter
+        { Transport = transport
           Local = config.Local
           MemberList = config.MemberList
-          PingTargets = MemberList.members config.MemberList |> List.shuffle
+          PingTargets = config.MemberList.Members() |> List.shuffle
           PeriodTimeout = config.PeriodTimeout
           PingTimeout = config.PingTimeout
           PingRequestGroupSize = config.PingRequestGroupSize }
     
     Async.Start(
-        receiver
-        |> AsyncSeq.choose (fun (addr, bytes) -> maybe { let! msg = Message.decode bytes 
-                                                         return addr, msg })
-        |> AsyncSeq.iterAsync (fun (addr, msg) -> handle addr msg push state))
+        transport.Receive()
+        |> AsyncSeq.iterAsync (fun (addr, msg) -> handle addr msg state))
     
-    Async.Start(pingLoop 255UL state)
+    Async.Start(pingLoop 0UL state)
 
     printfn "Failure detection system is running"

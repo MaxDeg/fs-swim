@@ -1,6 +1,6 @@
 module SwimProtocol.Message
 
-//open MsgPack
+open MsgPack
 open System.Net
 
 type Ping = PeriodSeqNumber
@@ -15,86 +15,63 @@ type Message =
 let private encodeEvents events = ()
 
 let private encodeMember memb = 
-    Array.concat [
-        memb.Name |> Packer.packString
-        memb.Address.Address.ToString()  |> Packer.packString
-        memb.Address.Port |> Packer.packInt
-    ]
+    Array [|
+        String memb.Name
+        String (memb.Address.Address.ToString())
+        Int32 memb.Address.Port
+    |]
 
-let encodePing seqNr =
-    seqNr |> Packer.packUInt64
+let encodePing seqNr = 
+    UInt64 seqNr |> Packer.pack
 
-let encodePingRequest seqNr memb =
-    Array.concat [
-        seqNr |> Packer.packUInt64
-        encodeMember memb
-    ]
+let encodePingRequest seqNr memb = 
+    Packer.packArray [|
+        yield UInt64 seqNr
+        yield encodeMember memb
+    |]
 
-let encodeAck seqNr memb =
-    Array.concat [
-        seqNr |> Packer.packUInt64
-        encodeMember memb
-    ]
+let encodeAck seqNr memb = 
+     Packer.packArray [|
+        yield UInt64 seqNr
+        yield encodeMember memb
+    |]
 
 let private decodeEvents events = ()
 
-let private (|Int32|_|) value =
-    match value with
-    | Value.Int8 i -> Some(int32 i)
-    | Value.Int16 i -> Some(int32 i)
-    | Value.Int32 i -> Some(i)
-    | _ -> None
-
-let private (|UInt64|_|) value =
-    match value with
-    | Value.UInt64 i -> Some i
-    | Value.UInt32 i -> Some(uint64 i)
-    | Value.UInt16 i -> Some(uint64 i)
-    | Value.UInt8 i -> Some(uint64 i)
-    | _ -> None
-
 let private (|Member|_|) values =
     match values with
-    | [ Value.String name; Value.String ip; Value.UInt16 port ] ->
+    | Array [| String name; String ip; Int32 port |] ->
         Some { Name = name
                Address = new IPEndPoint(IPAddress.Parse(ip), int port) }
     | _ -> None
 
 let decodePing bytes =
-    printfn "Decode Ping %A" bytes
     match Unpacker.unpack bytes with
-    | [| UInt64 seqNr |] -> Ping seqNr |> Some
+    | UInt64 seqNr -> Ping seqNr |> Some
     | _ -> None
 
 let decodePingRequest bytes =
-    printfn "Decode PingRequest %A" bytes
-    match Unpacker.unpack bytes |> List.ofArray with
-    | UInt64 seqNr :: Member(memb) -> 
+    match Unpacker.unpack bytes with
+    | Array [| UInt64 seqNr; Member memb |] -> 
         PingRequest(seqNr, memb) |> Some 
     | _ -> None
 
 let decodeAck bytes =
-    printfn "Decode Ack %A" bytes
-    match Unpacker.unpack bytes |> List.ofArray with
-    | UInt64 seqNr :: Member(memb) -> 
+    match Unpacker.unpack bytes with
+    | Array [| UInt64 seqNr; Member memb |] -> 
         Ack(seqNr, memb) |> Some 
     | _ -> None
 
 let encode msg : byte[] =
     match msg with
-    | Ping s -> encodePing s |> Packer.packExt 0y
-    | PingRequest(s, m) -> encodePingRequest s m |> Packer.packExt 1y
-    | Ack(s, m) -> encodeAck s m |> Packer.packExt 2y
+    | Ping s -> Extension(0y, encodePing s)
+    | PingRequest(s, m) -> Extension(1y, encodePingRequest s m)
+    | Ack(s, m) -> Extension(2y, encodeAck s m)
+    |> Packer.pack
 
 let decode bytes =
-    try
-        printfn "Decode %A" bytes
-        match Unpacker.unpack bytes with
-        | [| Value.Ext(id, rest) |] when id = 0y -> decodePing rest
-        | [| Value.Ext(id, rest) |] when id = 1y -> decodePingRequest rest
-        | [| Value.Ext(id, rest) |] when id = 2y -> decodeAck rest
-        | _ -> printfn "fail decode";None
-    with
-    | e -> 
-        printfn "Error %A" e
-        reraise()
+    match Unpacker.unpack bytes with
+    | Value.Extension(id, rest) when id = 0y -> decodePing rest
+    | Value.Extension(id, rest) when id = 1y -> decodePingRequest rest
+    | Value.Extension(id, rest) when id = 2y -> decodeAck rest
+    | _ -> None
