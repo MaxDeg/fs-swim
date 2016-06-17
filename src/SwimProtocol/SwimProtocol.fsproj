@@ -65,6 +65,7 @@
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Utils.fs" />
+    <Compile Include="LamportTimestamp.fs" />
     <Compile Include="AsyncSeqSrc.fs" />
     <Compile Include="Types.fs" />
     <Compile Include="Message.fs" />
