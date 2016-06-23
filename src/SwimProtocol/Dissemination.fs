@@ -11,7 +11,7 @@ let private push event state = state
 
 let private pull numMembers state =
     let maxPiggyBack = 5. * log10 (float numMembers)
-    [], state
+    [||], state
 
 type EventDisseminator =
     private { Agent : MailboxProcessor<Request> }

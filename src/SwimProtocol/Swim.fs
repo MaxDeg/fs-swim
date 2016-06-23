@@ -1,6 +1,7 @@
 ﻿module SwimProtocol.Swim
 
 open System
+open Membership
 
 type Host = string * int
 
@@ -25,13 +26,13 @@ let init config hosts =
           PingRequestGroupSize = pingReqGrpSize
           SuspectTimeout = suspectTimeout } = config
 
-    let local = Membership.makeLocal port
+    let local = MemberList.makeLocal port
     let disseminator = Dissemination.create()
     
     let memberList =
         hosts
-        |> List.map (fun (h, p) -> Membership.makeMember h p)
-        |> Membership.createWith disseminator suspectTimeout
+        |> List.map (fun (h, p) -> MemberList.makeMember h p)
+        |> MemberList.createWith disseminator suspectTimeout
 
     FailureDetection.init { Port = port
                             Local = local

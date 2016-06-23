@@ -26,6 +26,16 @@ type Member =
             | :? Member as o -> compare x.Name o.Name
             | _ -> invalidArg "other" "cannot compare values of different types"
 
+
+type Ping = PeriodSeqNumber
+type PingRequest = PeriodSeqNumber * Member
+type Ack = PeriodSeqNumber * Member
+
+type Message = 
+    | PingMessage of Ping
+    | PingRequestMessage of PingRequest
+    | AckMessage of Ack
+
 type MembershipEvent = 
 | Alive of Member * IncarnationNumber
 | Suspect of Member * IncarnationNumber

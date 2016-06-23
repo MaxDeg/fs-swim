@@ -1,16 +1,16 @@
 ﻿module SwimProtocol.FailureDetection
 
-open FSharp.Control
 open System
 open System.Net
+open Message
 open Transport
 open Membership
-open Message
+open FSharp.Control
 open FSharp.Control.Reactive
 open FSharpx.Control.Observable
 
 type private State =
-    { Transport: Transport<Message>
+    { Transport: Transport
       Local : Member
       MemberList : MemberList
       PingTargets : (Member * IncarnationNumber) list
@@ -28,10 +28,11 @@ type private State =
         member x.WaitForAck seqNr memb (timeout : TimeSpan) = async {
             let filterAck (addr, msg) =
                 match msg with
-                | Ack(ackSeqNr, ackMemb) as ack when seqNr = ackSeqNr && memb = ackMemb -> true
+                | Some(AckMessage(ackSeqNr, ackMemb)) as ack when seqNr = ackSeqNr && memb = ackMemb -> true
                 | _ -> false
             
             let! ack = x.Transport.Received
+                        |> Observable.map (fun (addr, bytes) -> addr, Message.decode bytes)
                         |> Observable.filter filterAck
                         |> Observable.map Some
                         |> Observable.timeoutSpanOption timeout
@@ -41,14 +42,14 @@ type private State =
         }
 
         member x.SendPing seqNr memb = async {
-            do! Ping seqNr |> x.Transport.Send (memb.Address)
+            do! PingMessage seqNr |> Message.encode |> x.Transport.Send (memb.Address)
             let! acked = x.WaitForAck seqNr memb x.PingTimeout
 
             return acked
         }
 
         member x.SendPingRequest seqNr memb = async {
-            let send m = PingRequest(seqNr, memb) |> x.Transport.Send (m.Address)
+            let send m = PingRequestMessage(seqNr, memb) |> Message.encode |> x.Transport.Send (m.Address)
             let members = x.MemberList.Members()
                             |> List.shuffle
                             |> List.choose (fun (m, _) -> if m <> memb then Some m else None)
@@ -85,7 +86,8 @@ type private State =
             return state'
         }
 
-        member x.Ack (seqNr, from) endpoint = Ack(seqNr, from) |> x.Transport.Send endpoint
+        member x.Ack (seqNr, from) endpoint = 
+            AckMessage(seqNr, from) |> Message.encode |> x.Transport.Send endpoint
 
         member x.HandlePing seqNr endpoint = x.Ack (seqNr, x.Local) endpoint
 
@@ -109,9 +111,9 @@ let rec private pingLoop seqNr (state : State) = async {
 
 let private handle addr msg (state : State) = Async.Start(async {
     match msg with
-    | Ping seqNr ->
+    | PingMessage seqNr ->
         return! state.HandlePing seqNr addr
-    | PingRequest pingRequest ->
+    | PingRequestMessage pingRequest ->
         return! state.HandlePingRequest pingRequest addr
     | _ -> ()
 })
@@ -125,10 +127,7 @@ type Config =
       PingRequestGroupSize : int }
 
 let init config =
-    let serializer = { new ISerializer<Message> with
-                       member __.Serialize msg = Message.encode msg
-                       member __.Deserialize bytes = Message.decode bytes }
-    let transport = Transport.create config.Port serializer
+    let transport = Transport.create config.Port
 
     let state =
         { Transport = transport
@@ -143,4 +142,6 @@ let init config =
 
     printfn "Failure detection system is running"    
     transport.Received
-    |> Observable.subscribe (fun (addr, msg) -> handle addr msg state)
+    |> Observable.map (fun (addr, bytes) -> addr, Message.decode bytes)
+    |> Observable.filter (fun (addr, msg) -> Option.isSome msg)
+    |> Observable.subscribe (fun (addr, msg) -> handle addr (Option.get msg) state)

@@ -1,7 +1,6 @@
 FSharpx.Extras
 FSharp.Control.Reactive
-FSharpx.Async
-File: DataType.fs
-File: Value.fs
-File: Packer.fs
-File: Unpacker.fs
+File:DataType.fs
+File:Value.fs
+File:Packer.fs
+File:Unpacker.fs

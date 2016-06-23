@@ -3,15 +3,6 @@ module SwimProtocol.Message
 open MsgPack
 open System.Net
 
-type Ping = PeriodSeqNumber
-type PingRequest = PeriodSeqNumber * Member
-type Ack = PeriodSeqNumber * Member
-
-type Message = 
-    | Ping of Ping
-    | PingRequest of PingRequest
-    | Ack of Ack
-
 let private encodeEvents events = ()
 
 let private encodeMember memb = 
