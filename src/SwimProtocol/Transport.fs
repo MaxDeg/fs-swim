@@ -16,7 +16,6 @@ type Transport<'a> =
     private { Client : UdpClient
               Serializer : ISerializer<'a>
               MessageSource : AsyncSeqSrc<TransportMessage<'a>> }
-
     with
         member x.Send addr msg =
             let bytes = x.Serializer.Serialize msg
@@ -24,8 +23,7 @@ type Transport<'a> =
             |> Async.AwaitTask
             |> Async.Ignore
 
-        member x.Receive() = 
-            AsyncSeqSrc.toAsyncSeq x.MessageSource
+        member x.Receive() = AsyncSeqSrc.toAsyncSeq x.MessageSource
 
 let create port (serializer : ISerializer<'a>) = 
     let udp = new UdpClient(port = port)  

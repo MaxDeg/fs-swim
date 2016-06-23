@@ -14,7 +14,7 @@ and private AsyncSeqSrcNode<'a> =
     val tcs : TaskCompletionSource<('a * AsyncSeqSrcNode<'a>) option>
     new (tcs) = { tcs = tcs }
 
-module AsyncSeqSrcImpl =
+module internal AsyncSeqSrcImpl =
 
     let private createNode () =
         new AsyncSeqSrcNode<_>(new TaskCompletionSource<_>())

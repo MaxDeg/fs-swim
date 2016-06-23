@@ -36,50 +36,48 @@ type private State =
       DeadMembers : Set<Member>
       Disseminator : EventDisseminator }
 
-    with
-        member x.Disseminate memb status =
-            let event = 
-                match status with
-                | Alive i -> MembershipEvent.Alive(memb, i)
-                | Suspected i -> MembershipEvent.Suspect(memb, i)
-                | Dead i -> MembershipEvent.Dead(memb, i)
-            x.Disseminator.Push event
+let private disseminate memb status state =
+    let event = 
+        match status with
+        | Alive i -> MembershipEvent.Alive(memb, i)
+        | Suspected i -> MembershipEvent.Suspect(memb, i)
+        | Dead i -> MembershipEvent.Dead(memb, i)
+    state.Disseminator |> Dissemination.push (Event.MembershipEvent event)
 
-        member x.UpdateMembers memb status =
-            x.Disseminate memb status    
-            match status with
-            | Dead _ -> 
-                { x with Members = x.Members |> Map.remove memb
-                         DeadMembers = x.DeadMembers |> Set.add memb }
-            | _ -> 
-                { x with Members = x.Members |> Map.add memb status }
+let private updateMembers memb status state =
+    disseminate memb status state
+    match status with
+    | Dead _ -> 
+        { state with Members = state.Members |> Map.remove memb
+                     DeadMembers = state.DeadMembers |> Set.add memb }
+    | _ -> 
+        { state with Members = state.Members |> Map.add memb status }
 
-        member x.Revive memb incarnation = 
-            maybe {
-                let status = x.Members |> Map.tryFind memb |> getOrElse (Alive incarnation)
-                let! newStatus = tryRevive status incarnation
-                return x.UpdateMembers memb newStatus
-            }
+let private revive memb incarnation state = 
+    maybe {
+        let status = state.Members |> Map.tryFind memb |> getOrElse (Alive incarnation)
+        let! newStatus = tryRevive status incarnation
+        return updateMembers memb newStatus state
+    }
 
-        member x.Suspect memb incarnation (agent : MailboxProcessor<Request>) = 
-            maybe { 
-                let! status = x.Members |> Map.tryFind memb
-                let! newStatus = trySuspect status incarnation
-                x.SuspectTimeout |> agent.PostAfter(Kill(memb, incarnation))
-                return x.UpdateMembers memb newStatus
-            }
+let private suspect memb incarnation (agent : MailboxProcessor<Request>) state = 
+    maybe { 
+        let! status = state.Members |> Map.tryFind memb
+        let! newStatus = trySuspect status incarnation
+        state.SuspectTimeout |> agent.PostAfter(Kill(memb, incarnation))
+        return updateMembers memb newStatus state
+    }
 
-        member x.Death memb incarnation = 
-            maybe {
-                let! status = x.Members |> Map.tryFind memb
-                match status with
-                | Suspected i when i <= incarnation -> return x.UpdateMembers memb (Dead incarnation)
-                | _ -> ()
-            }
+let private death memb incarnation state = 
+    maybe {
+        let! status = state.Members |> Map.tryFind memb
+        match status with
+        | Suspected i when i <= incarnation -> return updateMembers memb (Dead incarnation) state
+        | _ -> ()
+    }
 
 type MemberList = 
     private { Agent : MailboxProcessor<Request> }
-
     with
         member x.Alive memb incarnation =
             Revive(memb, incarnation) |> x.Agent.Post
@@ -87,49 +85,50 @@ type MemberList =
             Suspect(memb, incarnation) |> x.Agent.Post
         member x.Dead memb incarnation =
             Kill(memb, incarnation) |> x.Agent.Post
-
-        member x.Members() =
+        member x.Members() = 
             x.Agent.PostAndReply Members
 
-let createWith disseminator suspectTimeout members = 
-    let rec handle (box : MailboxProcessor<Request>) (state : State) = async {
-        let! msg = box.Receive()
-        let state' = 
-            match msg with
-            | Revive(m, i) -> state.Revive m i
-            | Suspect(m, i) -> state.Suspect m i box
-            | Kill(m, i) -> state.Death m i
-            | Members(rc) -> 
-                state.Members
-                |> Map.toList
-                |> List.map (function | m, Alive i | m, Suspected i | m, Dead i -> m, i)
-                |> rc.Reply
-                None
-            |> getOrElse state
+[<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module MemberList =
+    let createWith disseminator suspectTimeout members = 
+        let rec handle (box : MailboxProcessor<Request>) (state : State) = async {
+            let! msg = box.Receive()
+            let state' = 
+                match msg with
+                | Revive(m, i) -> revive m i state
+                | Suspect(m, i) -> suspect m i box state
+                | Kill(m, i) -> death m i state
+                | Members(rc) -> 
+                    state.Members
+                    |> Map.toList
+                    |> List.map (function | m, Alive i | m, Suspected i | m, Dead i -> m, i)
+                    |> rc.Reply
+                    None
+                |> getOrElse state
 
-        return! handle box state'
-    }
-    
-    let members' = members |> List.map (fun m -> m, Alive 0UL) |> Map.ofList
-    let state = 
-        { Members = members'
-          SuspectTimeout = suspectTimeout
-          DeadMembers = Set.empty
-          Disseminator = disseminator }
-    
-    { Agent = MailboxProcessor<Request>.Start(fun box -> handle box state) }
+            return! handle box state'
+        }
+        
+        let members' = members |> List.map (fun m -> m, Alive 0UL) |> Map.ofList
+        let state = 
+            { Members = members'
+              SuspectTimeout = suspectTimeout
+              DeadMembers = Set.empty
+              Disseminator = disseminator }
+        
+        { Agent = MailboxProcessor<Request>.Start(fun box -> handle box state) }
 
-let create suspectTimeout disseminator = createWith disseminator suspectTimeout []
+    let create suspectTimeout disseminator = createWith disseminator suspectTimeout []
 
-let makeMember host port =
-    let ipAddress =
-        Dns.GetHostAddresses(host)
-        |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
-        |> Array.head
+    let makeMember host port =
+        let ipAddress =
+            Dns.GetHostAddresses(host)
+            |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
+            |> Array.head
 
-    { Name = sprintf "gossip:%s@%A:%i" host ipAddress port
-      Address = new IPEndPoint(ipAddress, port) }
+        { Name = sprintf "gossip:%s@%A:%i" host ipAddress port
+          Address = new IPEndPoint(ipAddress, port) }
 
-let makeLocal port =
-    let hostName = Dns.GetHostName()
-    makeMember hostName port
+    let makeLocal port =
+        let hostName = Dns.GetHostName()
+        makeMember hostName port

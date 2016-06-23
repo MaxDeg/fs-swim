@@ -17,20 +17,20 @@ type private State =
       PingTimeout : TimeSpan
       PingRequestGroupSize : int }
 
-    with        
+    with
         member x.PickPingTarget() =
             match x.PingTargets with
             | [] -> { x with PingTargets = x.MemberList.Members() |> List.shuffle }.PickPingTarget()
             | head::tail -> head, { x with PingTargets = tail }
 
         member x.WaitForAck seqNr memb (timeout : TimeSpan) = async {
-            let filterAck (addr, msg) = 
+            let validateAck (addr, msg) = 
                 match msg with
                 | Ack(ackSeqNr, ackMemb) as ack when seqNr = ackSeqNr && memb = ackMemb -> true
                 | _ -> false
 
             let! ack = x.Transport.Receive()
-                        |> AsyncSeq.filter filterAck
+                        |> AsyncSeq.filter validateAck
                         |> AsyncSeq.takeUntilSignal (int timeout.TotalMilliseconds |> Async.Sleep)
                         |> AsyncSeq.tryFirst
             
@@ -48,7 +48,8 @@ type private State =
             let send m = PingRequest(seqNr, memb) |> x.Transport.Send (m.Address)
             
             let members = x.MemberList.Members()
-                        |> List.choose (fun (m, _) -> if m <> memb then Some m else None)
+                            |> List.shuffle
+                            |> List.choose (fun (m, _) -> if m <> memb then Some m else None)
             
             do! members        
                 |> List.take (Math.Min(x.PingRequestGroupSize, List.length members))
@@ -56,17 +57,6 @@ type private State =
                 |> List.toSeq
                 |> Async.Parallel
                 |> Async.Ignore
-        }
-
-        member x.Ack (seqNr, from) endpoint = Ack(seqNr, from) |> x.Transport.Send endpoint
-
-        member x.HandlePing seqNr endpoint = x.Ack (seqNr, x.Local) endpoint
-
-        member x.HandlePingRequest (seqNr, memb) endpoint = async {
-            let! acked = x.SendPing seqNr memb
-
-            if acked then
-                do! x.Ack (seqNr, memb) endpoint
         }
 
         member x.Ping seqNr = async {
@@ -91,6 +81,17 @@ type private State =
                 x.MemberList.Suspect memb incarnation
 
             return state'
+        }
+
+        member x.Ack (seqNr, from) endpoint = Ack(seqNr, from) |> x.Transport.Send endpoint
+
+        member x.HandlePing seqNr endpoint = x.Ack (seqNr, x.Local) endpoint
+
+        member x.HandlePingRequest (seqNr, memb) endpoint = async {
+            let! acked = x.SendPing seqNr memb
+
+            if acked then
+                do! x.Ack (seqNr, memb) endpoint
         }
 
 let private nextSeqNumber seqNr =
