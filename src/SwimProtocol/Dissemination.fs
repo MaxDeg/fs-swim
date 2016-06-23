@@ -1,16 +1,10 @@
 ﻿module SwimProtocol.Dissemination
 
-[<RequireQualifiedAccess>]
-type Event =
-| MembershipEvent of MembershipEvent
-| UserEvent of string
-
 type private Request =
-| Push of Event
-| Pull of int * AsyncReplyChannel<Event[]>
-
+| Push of SwimEvent
+| Pull of int * AsyncReplyChannel<SwimEvent[]>
     
-type private PiggyBackedEvent = Event * int
+type private PiggyBackedEvent = SwimEvent * int
 type private State = PiggyBackedEvent list
 
 let private push event state = state

@@ -42,7 +42,7 @@ let private disseminate memb status state =
         | Alive i -> MembershipEvent.Alive(memb, i)
         | Suspected i -> MembershipEvent.Suspect(memb, i)
         | Dead i -> MembershipEvent.Dead(memb, i)
-    state.Disseminator |> Dissemination.push (Event.MembershipEvent event)
+    state.Disseminator.Push(MembershipEvent event)
 
 let private updateMembers memb status state =
     disseminate memb status state

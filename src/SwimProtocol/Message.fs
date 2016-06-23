@@ -17,7 +17,7 @@ let private encodeEvents events = ()
 let private encodeMember memb = 
     Array [|
         String memb.Name
-        String (memb.Address.Address.ToString())
+        String(memb.Address.Address.ToString())
         Int32 memb.Address.Port
     |]
 

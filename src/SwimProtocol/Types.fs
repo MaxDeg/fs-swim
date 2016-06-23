@@ -27,6 +27,10 @@ type Member =
             | _ -> invalidArg "other" "cannot compare values of different types"
 
 type MembershipEvent = 
-    | Alive of Member * IncarnationNumber
-    | Suspect of Member * IncarnationNumber
-    | Dead of Member * IncarnationNumber
+| Alive of Member * IncarnationNumber
+| Suspect of Member * IncarnationNumber
+| Dead of Member * IncarnationNumber
+
+type SwimEvent =
+| MembershipEvent of MembershipEvent
+| UserEvent of string
