@@ -15,31 +15,29 @@ type ISerializer<'a> =
 type Transport<'a> =
     private { Client : UdpClient
               Serializer : ISerializer<'a>
-              MessageSource : AsyncSeqSrc<TransportMessage<'a>> }
-
+              ReceivedEvent : Event<TransportMessage<'a>> }
     with
+        member x.Received = x.ReceivedEvent.Publish
+
         member x.Send addr msg =
             let bytes = x.Serializer.Serialize msg
             x.Client.SendAsync(bytes, bytes.Length, addr)
             |> Async.AwaitTask
             |> Async.Ignore
 
-        member x.Receive() = 
-            AsyncSeqSrc.toAsyncSeq x.MessageSource
-
 let create port (serializer : ISerializer<'a>) = 
-    let udp = new UdpClient(port = port)  
-    let source = AsyncSeqSrc.create()
+    let udp = new UdpClient(port = port)
+    let receivedEvent = new Event<TransportMessage<'a>>()
 
     Async.Start(async {
         while true do
             let! updMsg = udp.ReceiveAsync() |> Async.AwaitTask
             maybe {
                 let! msg = serializer.Deserialize updMsg.Buffer
-                AsyncSeqSrc.put (updMsg.RemoteEndPoint, msg) source
+                receivedEvent.Trigger(updMsg.RemoteEndPoint, msg)
             } |> ignore
     })
     
     { Client = udp
       Serializer = serializer
-      MessageSource = source }
+      ReceivedEvent = receivedEvent }

@@ -1,12 +1,8 @@
 ﻿module SwimProtocol.Dissemination
 
-type Event =
-| MembershipEvent of MembershipEvent
-| UserEvent of string
-
 type private Request =
-| Push of Event
-| Pull of AsyncReplyChannel<Event[]>
+| Push of SwimEvent
+| Pull of AsyncReplyChannel<SwimEvent[]>
 
 type EventDisseminator =
     private { Agent : MailboxProcessor<Request> }

@@ -43,7 +43,7 @@ type private State =
                 | Alive i -> MembershipEvent.Alive(memb, i)
                 | Suspected i -> MembershipEvent.Suspect(memb, i)
                 | Dead i -> MembershipEvent.Dead(memb, i)
-            x.Disseminator.Push event
+            x.Disseminator.Push(MembershipEvent event)
 
         member x.UpdateMembers memb status =
             x.Disseminate memb status    

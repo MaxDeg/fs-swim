@@ -1,8 +1,11 @@
 NUGET
   remote: https://www.nuget.org/api/v2
-  specs:
     FAKE (4.28)
     FSharp.Control.AsyncSeq (2.0.8)
+    FSharp.Control.Reactive (3.4.1)
+      Rx-Core (>= 2.2.5)
+      Rx-Interfaces (>= 2.2.5)
+      Rx-Linq (>= 2.2.5)
     FSharp.Core (4.0.0.1)
     FSharpx.Async (1.12)
       FSharp.Control.AsyncSeq
@@ -11,10 +14,15 @@ NUGET
     FSharpx.Extras (1.10.3)
       FSharpx.Async (>= 1.12)
       FSharpx.Collections (>= 1.10.1)
+    Rx-Core (2.2.5)
+      Rx-Interfaces (>= 2.2.5)
+    Rx-Interfaces (2.2.5)
+    Rx-Linq (2.2.5)
+      Rx-Core (>= 2.2.5)
+      Rx-Interfaces (>= 2.2.5)
 GITHUB
   remote: MaxDeg/fs-msgpack
-  specs:
-    src/MsgPack/DataType.fs (1bbedf342082ea5719d76c66bdbeb6552194f789)
-    src/MsgPack/Packer.fs (1bbedf342082ea5719d76c66bdbeb6552194f789)
-    src/MsgPack/Unpacker.fs (1bbedf342082ea5719d76c66bdbeb6552194f789)
-    src/MsgPack/Value.fs (1bbedf342082ea5719d76c66bdbeb6552194f789)
+    src/MsgPack/DataType.fs (cadc4f5a42191a978f224f633b13e4a913f8ced6)
+    src/MsgPack/Packer.fs (cadc4f5a42191a978f224f633b13e4a913f8ced6)
+    src/MsgPack/Unpacker.fs (cadc4f5a42191a978f224f633b13e4a913f8ced6)
+    src/MsgPack/Value.fs (cadc4f5a42191a978f224f633b13e4a913f8ced6)

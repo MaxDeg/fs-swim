@@ -16,7 +16,6 @@
 #load "FailureDetection.fs"
 #load "Swim.fs"
 
-
 open SwimProtocol
 
 let node1 = Swim.init { Swim.defaultConfig with Port = 1337 } []

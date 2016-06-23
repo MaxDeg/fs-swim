@@ -14,7 +14,7 @@ let main argv =
 //    argv
 //    |> Array.map parseEndpoint
 //    |> Array.toList
-//    |> Swim.init { Swim.defaultConfig with Port = port } 
+//    |> Swim.init { Swim.defaultConfig with Port = port }
 
 
     let node1 = Swim.init { Swim.defaultConfig with Port = 1337 } []
