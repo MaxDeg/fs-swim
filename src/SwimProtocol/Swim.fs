@@ -2,6 +2,8 @@
 
 open System
 open Membership
+open Transport
+open FailureDetection
 
 type Host = string * int
 
@@ -19,6 +21,10 @@ let defaultConfig =
       PingRequestGroupSize = 3
       SuspectTimeout = TimeSpan.FromSeconds 10.0 }
 
+let private decodeMessage (addr, bytes) =
+    Message.decode bytes
+    |> Option.map (fun msg -> addr, msg)
+
 let init config hosts = 
     let { Port = port
           PeriodTimeout = periodTimeout
@@ -28,15 +34,21 @@ let init config hosts =
 
     let local = MemberList.makeLocal port
     let disseminator = Dissemination.create()
+    let udp = Udp.connect port
     
     let memberList =
         hosts
         |> List.map (fun (h, p) -> MemberList.makeMember h p)
         |> MemberList.createWith disseminator suspectTimeout
 
-    FailureDetection.init { Port = port
-                            Local = local
-                            MemberList = memberList
-                            PeriodTimeout = periodTimeout
-                            PingTimeout = pingTimeout
-                            PingRequestGroupSize = pingReqGrpSize }
+    let detectorConfig = { Local = local
+                           MemberList = memberList
+                           PeriodTimeout = periodTimeout
+                           PingTimeout = pingTimeout
+                           PingRequestGroupSize = pingReqGrpSize }
+
+    udp.Received
+    |> Observable.choose decodeMessage
+    |> FailureDetection.run detectorConfig
+    |> Observable.map (fun (addr, msg) -> addr, Message.encode msg)
+    |> Observable.subscribe udp.Send

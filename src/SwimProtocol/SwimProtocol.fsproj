@@ -41,22 +41,6 @@
     <OtherFlags />
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="..\..\paket-files\MaxDeg\fs-msgpack\src\MsgPack\DataType.fs">
-      <Paket>True</Paket>
-      <Link>paket-files/DataType.fs</Link>
-    </Compile>
-    <Compile Include="..\..\paket-files\MaxDeg\fs-msgpack\src\MsgPack\Value.fs">
-      <Paket>True</Paket>
-      <Link>paket-files/Value.fs</Link>
-    </Compile>
-    <Compile Include="..\..\paket-files\MaxDeg\fs-msgpack\src\MsgPack\Packer.fs">
-      <Paket>True</Paket>
-      <Link>paket-files/Packer.fs</Link>
-    </Compile>
-    <Compile Include="..\..\paket-files\MaxDeg\fs-msgpack\src\MsgPack\Unpacker.fs">
-      <Paket>True</Paket>
-      <Link>paket-files/Unpacker.fs</Link>
-    </Compile>
     <Reference Include="mscorlib" />
     <Reference Include="System" />
     <Reference Include="System.Core" />
