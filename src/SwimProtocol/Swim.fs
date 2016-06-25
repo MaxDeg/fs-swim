@@ -41,14 +41,14 @@ let init config hosts =
         |> List.map (fun (h, p) -> MemberList.makeMember h p)
         |> MemberList.createWith disseminator suspectTimeout
 
-    let detectorConfig = { Local = local
-                           MemberList = memberList
-                           PeriodTimeout = periodTimeout
-                           PingTimeout = pingTimeout
-                           PingRequestGroupSize = pingReqGrpSize }
-
     udp.Received
     |> Observable.choose decodeMessage
-    |> FailureDetection.run detectorConfig
+    // dispach event to disseminator
+    |> FailureDetection.run { Local = local
+                              MemberList = memberList
+                              PeriodTimeout = periodTimeout
+                              PingTimeout = pingTimeout
+                              PingRequestGroupSize = pingReqGrpSize }
     |> Observable.map (fun (addr, msg) -> addr, Message.encode msg)
+    // Add event from disseminator
     |> Observable.subscribe udp.Send
