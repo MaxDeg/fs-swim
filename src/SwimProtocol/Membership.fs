@@ -29,6 +29,7 @@ type private Request =
     | Suspect of Member * IncarnationNumber
     | Kill of Member * IncarnationNumber
     | Members of AsyncReplyChannel<(Member * IncarnationNumber) list>
+    | Length of AsyncReplyChannel<int>
 
 type private State = 
     { Members : Map<Member, MemberStatus>
@@ -55,7 +56,8 @@ let private updateMembers memb status state =
 
 let private revive memb incarnation state = 
     maybe {
-        let status = state.Members |> Map.tryFind memb |> getOrElse (Alive incarnation)
+        let status = state.Members |> Map.tryFind memb 
+                                   |> getOrElse (Alive incarnation)
         let! newStatus = tryRevive status incarnation
         return updateMembers memb newStatus state
     }
@@ -87,6 +89,7 @@ type MemberList =
             Kill(memb, incarnation) |> x.Agent.Post
         member x.Members() = 
             x.Agent.PostAndReply Members
+        member x.Length with get() = x.Agent.PostAndReply Length
 
 [<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module MemberList =
@@ -99,17 +102,20 @@ module MemberList =
                 | Suspect(m, i) -> suspect m i box state
                 | Kill(m, i) -> death m i state
                 | Members(rc) -> 
-                    state.Members
-                    |> Map.toList
-                    |> List.map (function | m, Alive i | m, Suspected i | m, Dead i -> m, i)
-                    |> rc.Reply
+                    state.Members |> Map.toList
+                                  |> List.map (function | m, Alive i | m, Suspected i | m, Dead i -> m, i)
+                                  |> rc.Reply
+                    None
+                | Length(rc) -> 
+                    rc.Reply(state.Members.Count)
                     None
                 |> getOrElse state
 
             return! handle box state'
         }
         
-        let members' = members |> List.map (fun m -> m, Alive 0UL) |> Map.ofList
+        let members' = members |> List.map (fun m -> m, Alive 0UL)
+                               |> Map.ofList
         let state = 
             { Members = members'
               SuspectTimeout = suspectTimeout

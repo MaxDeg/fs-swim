@@ -2,6 +2,7 @@
 
 open System
 open System.Net
+open System.Net.NetworkInformation
 open System.Net.Sockets
 open FSharp.Control
 open FSharpx.Option
@@ -32,3 +33,18 @@ module Udp =
         
         { Client = udp
           ReceivedEvent = receivedEvent }
+    
+    let randomPort() =
+        let isUdpPortUsed =
+            let usedUdpPort =
+                IPGlobalProperties.GetIPGlobalProperties().GetActiveUdpListeners() 
+                |> Array.map (fun e -> e.Port)
+
+            fun p -> Array.exists (fun p' -> p' = p) usedUdpPort
+        
+        let rec nextFreePort port =
+            if isUdpPortUsed port then nextFreePort port
+            else port 
+
+        nextFreePort 1337
+

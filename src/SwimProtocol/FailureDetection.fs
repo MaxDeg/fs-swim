@@ -27,10 +27,10 @@ let private ackFor seqNr memb { IncomingAck = incomingAck } =
                 |> Observable.map (fun a -> PingAcked)
 
 let private pingTimeoutFor seqNr memb { PingTimeout = timeout } =
-    PingTimeout(seqNr, memb) |> Observable.single |> Observable.delay timeout
+    PingTimeout(seqNr, memb) |> Observable.single |> Observable.delay timeout |> Observable.head
     
 let private periodTimeoutFor seqNr memb { PeriodTimeout = timeout } =
-    PingTimeout(seqNr, memb) |> Observable.single |> Observable.delay timeout
+    PingTimeout(seqNr, memb) |> Observable.single |> Observable.delay timeout |> Observable.head
 
 let private ping seqNr memb { TriggerMessage = trigger } =
     trigger(memb.Address, PingMessage seqNr)
@@ -58,25 +58,31 @@ let private ackPingRequest seqNr memb target state =
     | _ -> ()
 
 let private runPeriod ({ SeqNumber = seqNr; PingTargets = pingTargets } as state) =
-    maybe {
-        let! memb, incarnation = List.tryHead pingTargets
-        let pingResult =
-            ackFor seqNr memb state
-            |> Observable.merge (pingTimeoutFor seqNr memb state)
-            |> Observable.perform (function PingTimeout(seqNr, memb) -> pingRequest seqNr memb state | _ -> ()) 
-            |> Observable.filter (function PingAcked _ -> true | PingTimeout _ -> false)
-            |> Observable.amb (periodTimeoutFor seqNr memb state)
-            |> Observable.head
-        
-        ping seqNr memb state
-        match Observable.wait pingResult with
-        | PingAcked ->
-            printfn "Ping %A successfully" seqNr
-            state.MemberList.Alive memb incarnation
-        | PingTimeout _ ->
-            printfn "Failed to ping %A" seqNr
-            state.MemberList.Suspect memb incarnation
-    } |> ignore
+    try
+        maybe {
+            let! memb, incarnation = List.tryHead pingTargets
+            ping seqNr memb state
+
+            let pingResult =
+                ackFor seqNr memb state
+                |> Observable.merge (pingTimeoutFor seqNr memb state)
+                |> Observable.perform (function PingTimeout(seqNr, memb) -> pingRequest seqNr memb state | _ -> ()) 
+                |> Observable.filter (function PingAcked _ -> true | PingTimeout _ -> false)
+                |> Observable.amb (periodTimeoutFor seqNr memb state)
+                |> Observable.head
+                |> Observable.wait
+
+            match pingResult with
+            | PingAcked ->
+                printfn "Ping %A successfully" seqNr
+                state.MemberList.Alive memb incarnation
+            | PingTimeout _ ->
+                printfn "Failed to ping %A" seqNr
+                state.MemberList.Suspect memb incarnation
+        } |> ignore
+    with e -> 
+        printfn "Error %A" e
+        ()
 
 
 let private nextState state =

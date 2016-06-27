@@ -7,39 +7,48 @@ type private Request =
 type private PiggyBackedEvent = SwimEvent * int
 type private State = PiggyBackedEvent list
 
-let private push event state = state
-
-let private pull numMembers state =
-    let maxPiggyBack = 5. * log10 (float numMembers)
-    [||], state
-
 type EventDisseminator =
     private { Agent : MailboxProcessor<Request> }
     with
         member x.Push msg =
-            printfn "[Event push] %A" msg
             Push msg |> x.Agent.Post
 
         member x.Pull numMembers =
             (fun rc -> Pull(numMembers, rc))
             |> x.Agent.PostAndReply
 
-        member x.Listen disseminator = ()
+let private push event state =
+    printfn "[Event push] %A" event
+    (event, 0) :: state
+
+let private pull numMembers state =
+    if numMembers = 0 then Array.empty, state
+    else
+        let maxPiggyBack = 3. * round(log (float numMembers + 1.)) |> int
+        let state' = List.filter (fun (_, c) -> c < maxPiggyBack) state
+        let sortCompare (e1, cnt1) (e2, cnt2) =
+            let eventOrder = function MembershipEvent _ -> 0 | UserEvent _ -> 1
+            compare (eventOrder e1) (eventOrder e2) + (cnt1 - cnt2)
+        
+        state' |> List.sortWith sortCompare
+               |> List.map fst
+               |> List.toArray,
+        state'
 
 let create() =
-    let agent = new MailboxProcessor<Request>(fun box ->
+    let agent = MailboxProcessor<Request>.Start(fun box ->
         let rec loop state = async {
             let! msg = box.Receive()
-            match msg with
-            | Push event -> push event state
-            | Pull (numMembers, replyChan) -> 
-                let membs, state' = pull numMembers state
-                replyChan.Reply membs
-                state'
+            let state' =
+                match msg with
+                | Push event -> push event state
+                | Pull (numMembers, replyChan) ->
+                    let membs, state' = pull numMembers state
+                    replyChan.Reply membs
+                    state'
             
-            return! loop state
+            return! loop state'
         }
-        
-        loop ())
-        
+        loop List.empty)
+    
     { Agent = agent }

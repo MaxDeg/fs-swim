@@ -1,7 +1,7 @@
 ﻿open SwimProtocol
+open Transport
 open System
 
-let randomPort() = 1337
 let parseEndpoint (endpoint : string) =
     let parts = endpoint.Split(':')
     parts.[0], int parts.[1]
@@ -9,7 +9,7 @@ let parseEndpoint (endpoint : string) =
 [<EntryPoint>]
 let main argv = 
     printfn "Swim Protocol starting"
-//    let port = randomPort()
+//    let port = Udp.randomPort()
 //
 //    argv
 //    |> Array.map parseEndpoint
