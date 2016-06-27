@@ -58,32 +58,27 @@ let private ackPingRequest seqNr memb target state =
     | _ -> ()
 
 let private runPeriod ({ SeqNumber = seqNr; PingTargets = pingTargets } as state) =
-    try
-        maybe {
-            let! memb, incarnation = List.tryHead pingTargets
-            ping seqNr memb state
+    maybe {
+        let! memb, incarnation = List.tryHead pingTargets
+        ping seqNr memb state
 
-            let pingResult =
-                ackFor seqNr memb state
-                |> Observable.merge (pingTimeoutFor seqNr memb state)
-                |> Observable.perform (function PingTimeout(seqNr, memb) -> pingRequest seqNr memb state | _ -> ()) 
-                |> Observable.filter (function PingAcked _ -> true | PingTimeout _ -> false)
-                |> Observable.amb (periodTimeoutFor seqNr memb state)
-                |> Observable.head
-                |> Observable.wait
+        let pingResult =
+            ackFor seqNr memb state
+            |> Observable.merge (pingTimeoutFor seqNr memb state)
+            |> Observable.perform (function PingTimeout(seqNr, memb) -> pingRequest seqNr memb state | _ -> ()) 
+            |> Observable.filter (function PingAcked _ -> true | PingTimeout _ -> false)
+            |> Observable.amb (periodTimeoutFor seqNr memb state)
+            |> Observable.head
+            |> Observable.wait
 
-            match pingResult with
-            | PingAcked ->
-                printfn "Ping %A successfully" seqNr
-                state.MemberList.Alive memb incarnation
-            | PingTimeout _ ->
-                printfn "Failed to ping %A" seqNr
-                state.MemberList.Suspect memb incarnation
-        } |> ignore
-    with e -> 
-        printfn "Error %A" e
-        ()
-
+        match pingResult with
+        | PingAcked ->
+            printfn "Ping %A successfully" seqNr
+            state.MemberList.Alive memb incarnation
+        | PingTimeout _ ->
+            printfn "Failed to ping %A" seqNr
+            state.MemberList.Suspect memb incarnation
+    } |> ignore
 
 let private nextState state =
     let pingTargets =

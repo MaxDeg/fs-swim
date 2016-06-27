@@ -67,9 +67,9 @@
     <Compile Include="Transport.fs" />
     <Compile Include="Dissemination.fs" />
     <Compile Include="Membership.fs" />
-    <None Include="Script.fsx" />
     <Compile Include="FailureDetection.fs" />
     <Compile Include="Swim.fs" />
+    <None Include="Script.fsx" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
