@@ -11,14 +11,14 @@ open FSharpx.Control.Observable
 type Host = string * int
 
 type Config = 
-    { Port: int
+    { Port: uint16
       PeriodTimeout : TimeSpan
       PingTimeout: TimeSpan
       PingRequestGroupSize : int
       SuspectTimeout : TimeSpan }
 
 let defaultConfig =
-    { Port = 1337
+    { Port = 1337us
       PeriodTimeout = TimeSpan.FromSeconds 2.
       PingTimeout = TimeSpan.FromMilliseconds 300.
       PingRequestGroupSize = 3
@@ -37,19 +37,29 @@ let init config hosts =
 
     let local = MemberList.makeLocal port
     let disseminator = Dissemination.create()
-    let udp = Udp.connect port
+    let udp = Udp.connect (int port)
         
     let memberList =
         hosts |> List.map (fun (h, p) -> MemberList.makeMember h p)
               |> MemberList.createWith disseminator suspectTimeout
 
     let encodeMessage msg =
-        Message.encode msg (memberList.Length |> disseminator.Pull)
+        let encodedMsg = Message.encodeMessage msg
+        let events = disseminator.Pull (memberList.Length) (Udp.maxSize - Message.sizeOf encodedMsg)
+
+        Message.encode encodedMsg events
 
     let messageReceived = udp.Received |> Observable.choose decodeMessage
     
     let diss =
         messageReceived |> Observable.map snd
+                        |> Observable.subscribe (fun evts ->
+                            evts
+                            |> List.choose (function MembershipEvent e -> Some e | _ -> None)
+                            |> List.iter (function
+                                            | Alive(n, inc) -> memberList.Alive n inc
+                                            | Suspect(n, inc) -> memberList.Suspect n inc
+                                            | Dead(n, inc) -> memberList.Dead n inc))
 
     let failureDetection =
         messageReceived |> Observable.map fst
@@ -63,4 +73,5 @@ let init config hosts =
 
     { new IDisposable with
         member __.Dispose() =
+            diss.Dispose()
             failureDetection.Dispose() }    

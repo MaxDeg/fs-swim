@@ -16,7 +16,7 @@ type private MemberStatus =
 let private tryRevive status nextIncarnation = 
     match status with
     | Alive i | Suspected i when nextIncarnation > i -> Some(Alive nextIncarnation)
-    | _ -> None
+    | Alive i | Suspected i | Dead i -> None
 
 let private trySuspect status nextIncarnation = 
     match status with
@@ -25,16 +25,16 @@ let private trySuspect status nextIncarnation =
     | _ -> None
 
 type private Request = 
-    | Revive of Member * IncarnationNumber
-    | Suspect of Member * IncarnationNumber
-    | Kill of Member * IncarnationNumber
-    | Members of AsyncReplyChannel<(Member * IncarnationNumber) list>
+    | Revive of Node * IncarnationNumber
+    | Suspect of Node * IncarnationNumber
+    | Kill of Node * IncarnationNumber
+    | Members of AsyncReplyChannel<(Node * IncarnationNumber) list>
     | Length of AsyncReplyChannel<int>
 
 type private State = 
-    { Members : Map<Member, MemberStatus>
+    { Members : Map<Node, MemberStatus>
       SuspectTimeout: TimeSpan
-      DeadMembers : Set<Member>
+      DeadMembers : Set<Node>
       Disseminator : EventDisseminator }
 
 let private disseminate memb status state =
@@ -57,7 +57,7 @@ let private updateMembers memb status state =
 let private revive memb incarnation state = 
     maybe {
         let status = state.Members |> Map.tryFind memb 
-                                   |> getOrElse (Alive incarnation)
+                                   |> getOrElse (Alive 0UL)
         let! newStatus = tryRevive status incarnation
         return updateMembers memb newStatus state
     }
@@ -113,16 +113,16 @@ module MemberList =
 
             return! handle box state'
         }
-        
-        let members' = members |> List.map (fun m -> m, Alive 0UL)
-                               |> Map.ofList
+
         let state = 
-            { Members = members'
+            { Members = Map.empty
               SuspectTimeout = suspectTimeout
               DeadMembers = Set.empty
               Disseminator = disseminator }
+
+        let state' = List.fold (fun s m -> updateMembers m (Alive 1UL) s) state members
         
-        { Agent = MailboxProcessor<Request>.Start(fun box -> handle box state) }
+        { Agent = MailboxProcessor<Request>.Start(fun box -> handle box state') }
 
     let create suspectTimeout disseminator = createWith disseminator suspectTimeout []
 
@@ -132,8 +132,8 @@ module MemberList =
             |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
             |> Array.head
 
-        { Name = sprintf "gossip:%s@%A:%i" host ipAddress port
-          Address = new IPEndPoint(ipAddress, port) }
+        { IPAddress = ipAddress.GetAddressBytes() |> toInt64
+          Port = port }
 
     let makeLocal port =
         let hostName = Dns.GetHostName()

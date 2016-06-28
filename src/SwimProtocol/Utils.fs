@@ -6,6 +6,12 @@ open System
 module Utils = 
     let choice list = List.tryPick id list
     
+    let toInt64 addr =
+        match Array.length addr with
+        | 4 -> BitConverter.ToInt32(addr, 0) |> int64
+        | 8 -> BitConverter.ToInt64(addr, 0)
+        | _ -> failwith "Incorrect format"
+    
     type MailboxProcessor<'a> with
         member x.PostAfter msg (timespan : TimeSpan) = 
             Async.Start(async { 

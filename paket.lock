@@ -1,6 +1,6 @@
 NUGET
   remote: https://www.nuget.org/api/v2
-    FAKE (4.28)
+    FAKE (4.29.2)
     FSharp.Control.AsyncSeq (2.0.8)
     FSharp.Control.Reactive (3.4.1)
       Rx-Core (>= 2.2.5)
@@ -22,7 +22,7 @@ NUGET
       Rx-Interfaces (>= 2.2.5)
 GITHUB
   remote: MaxDeg/fs-msgpack
-    src/MsgPack/DataType.fs (cadc4f5a42191a978f224f633b13e4a913f8ced6)
-    src/MsgPack/Packer.fs (cadc4f5a42191a978f224f633b13e4a913f8ced6)
-    src/MsgPack/Unpacker.fs (cadc4f5a42191a978f224f633b13e4a913f8ced6)
-    src/MsgPack/Value.fs (cadc4f5a42191a978f224f633b13e4a913f8ced6)
+    src/MsgPack/DataType.fs (9255ac3f96be294153192d0caabdfa340fa774fa)
+    src/MsgPack/Packer.fs (9255ac3f96be294153192d0caabdfa340fa774fa)
+    src/MsgPack/Unpacker.fs (9255ac3f96be294153192d0caabdfa340fa774fa)
+    src/MsgPack/Value.fs (9255ac3f96be294153192d0caabdfa340fa774fa)

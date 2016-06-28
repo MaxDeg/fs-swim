@@ -9,27 +9,32 @@ type IncarnationNumber = uint64
 
 type PeriodSeqNumber = uint64
 
-[<CustomEquality; CustomComparison>]
-type Member = 
-    { Name : string
-      Address : IPEndPoint }
+[<StructuralEquality; StructuralComparison>]
+type Node =
+    { IPAddress : int64 
+      Port : uint16 }
+
+// [<CustomEquality; CustomComparison>]
+// type Member = 
+//     { Name : string
+//       Address : IPEndPoint }
     
-    override x.Equals other = 
-        match other with
-        | :? Member as o -> x.Name = o.Name
-        | _ -> false
+//     override x.Equals other =
+//         match other with
+//         | :? Member as o -> x.Name = o.Name
+//         | _ -> false
     
-    override x.GetHashCode() = hash x.Name
-    interface IComparable with
-        member x.CompareTo other = 
-            match other with
-            | :? Member as o -> compare x.Name o.Name
-            | _ -> invalidArg "other" "cannot compare values of different types"
+//     override x.GetHashCode() = hash x.Name
+//     interface IComparable with
+//         member x.CompareTo other = 
+//             match other with
+//             | :? Member as o -> compare x.Name o.Name
+//             | _ -> invalidArg "other" "cannot compare values of different types"
 
 
 type Ping = PeriodSeqNumber
-type PingRequest = PeriodSeqNumber * Member
-type Ack = PeriodSeqNumber * Member
+type PingRequest = PeriodSeqNumber * Node
+type Ack = PeriodSeqNumber * Node
 
 type Message = 
     | PingMessage of Ping
@@ -37,9 +42,9 @@ type Message =
     | AckMessage of Ack
 
 type MembershipEvent = 
-| Alive of Member * IncarnationNumber
-| Suspect of Member * IncarnationNumber
-| Dead of Member * IncarnationNumber
+| Alive of Node * IncarnationNumber
+| Suspect of Node * IncarnationNumber
+| Dead of Node * IncarnationNumber
 
 type SwimEvent =
 | MembershipEvent of MembershipEvent

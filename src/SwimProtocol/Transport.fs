@@ -7,7 +7,7 @@ open System.Net.Sockets
 open FSharp.Control
 open FSharpx.Option
 
-type TransportMessage= IPEndPoint * byte[]
+type TransportMessage= Node * byte[]
 
 type Udp =
     private { Client : UdpClient
@@ -15,20 +15,25 @@ type Udp =
     with
         member x.Received = x.ReceivedEvent.Publish
 
-        member x.Send(addr, bytes) =
-            x.Client.Send(bytes, bytes.Length, addr) |> ignore
+        member x.Send(node, bytes) =
+            x.Client.Send(bytes, bytes.Length, new IPEndPoint(node.IPAddress, int node.Port)) |> ignore
 
 
 [<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Udp =
+    [<Literal>]
+    let maxSize = 512
+    
     let connect port = 
         let udp = new UdpClient(port = port)
         let receivedEvent = new Event<TransportMessage>()
 
         Async.Start(async {
             while true do
-                let! updMsg = udp.ReceiveAsync() |> Async.AwaitTask
-                receivedEvent.Trigger(updMsg.RemoteEndPoint, updMsg.Buffer)
+                let! udpMsg = udp.ReceiveAsync() |> Async.AwaitTask
+                let node = { IPAddress = udpMsg.RemoteEndPoint.Address.GetAddressBytes() |> toInt64
+                             Port = uint16 udpMsg.RemoteEndPoint.Port }
+                receivedEvent.Trigger(node, udpMsg.Buffer)
         })
         
         { Client = udp

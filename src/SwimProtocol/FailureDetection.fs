@@ -11,16 +11,16 @@ open FSharpx.Control.Observable
 
 type private State =
     { SeqNumber : PeriodSeqNumber
-      Local : Member
+      Local : Node
       MemberList : MemberList
       IncomingAck : IObservable<Ack>
-      TriggerMessage : IPEndPoint * Message -> unit
-      PingTargets : (Member * IncarnationNumber) list
+      TriggerMessage : Node * Message -> unit
+      PingTargets : (Node * IncarnationNumber) list
       PeriodTimeout : TimeSpan
       PingTimeout : TimeSpan
       PingRequestGroupSize : int }
 
-type private PingStatus = PingAcked | PingTimeout of PeriodSeqNumber * Member
+type private PingStatus = PingAcked | PingTimeout of PeriodSeqNumber * Node
 
 let private ackFor seqNr memb { IncomingAck = incomingAck } =
     incomingAck |> Observable.filter (fun (ackSeqNr, ackMemb) -> seqNr = ackSeqNr && memb = ackMemb)
@@ -33,18 +33,18 @@ let private periodTimeoutFor seqNr memb { PeriodTimeout = timeout } =
     PingTimeout(seqNr, memb) |> Observable.single |> Observable.delay timeout |> Observable.head
 
 let private ping seqNr memb { TriggerMessage = trigger } =
-    trigger(memb.Address, PingMessage seqNr)
+    trigger(memb, PingMessage seqNr)
     
 let private pingRequest seqNr memb state =
     let members = state.MemberList.Members() |> List.shuffle
                                              |> List.choose (fun (m, _) -> if m <> memb then Some m else None)
 
     members |> List.take (Math.Min(state.PingRequestGroupSize, List.length members))
-            |> List.iter (fun m -> state.TriggerMessage(m.Address, PingRequestMessage(seqNr, memb)))
+            |> List.iter (fun m -> state.TriggerMessage(m, PingRequestMessage(seqNr, memb)))
     
 
 let private ackPing seqNr target { Local = local; TriggerMessage = trigger } =
-     trigger(target, AckMessage(seqNr,local))
+     trigger(target, AckMessage(seqNr, local))
     
 let private ackPingRequest seqNr memb target state =
     let pingResult =
@@ -57,7 +57,7 @@ let private ackPingRequest seqNr memb target state =
     | PingAcked -> state.TriggerMessage(target, AckMessage(seqNr,memb))
     | _ -> ()
 
-let private runPeriod ({ SeqNumber = seqNr; PingTargets = pingTargets } as state) =
+let private runPeriod ({ SeqNumber = seqNr; PingTargets = pingTargets; Local = local } as state) =
     maybe {
         let! memb, incarnation = List.tryHead pingTargets
         ping seqNr memb state
@@ -73,10 +73,10 @@ let private runPeriod ({ SeqNumber = seqNr; PingTargets = pingTargets } as state
 
         match pingResult with
         | PingAcked ->
-            printfn "Ping %A successfully" seqNr
+            printfn "[%A] Ping %A successfully" local seqNr
             state.MemberList.Alive memb incarnation
         | PingTimeout _ ->
-            printfn "Failed to ping %A" seqNr
+            printfn "[%A] Failed to ping %A" local seqNr
             state.MemberList.Suspect memb incarnation
     } |> ignore
 
@@ -95,7 +95,7 @@ let private handle state (addr, msg) =
     | _ -> ()
 
 type Config =
-    { Local : Member
+    { Local : Node
       MemberList : MemberList
       PeriodTimeout : TimeSpan
       PingTimeout : TimeSpan
@@ -103,7 +103,7 @@ type Config =
 
 let run config incomingMessages =
     let filterAck = function _, AckMessage ack -> Some ack | _ -> None
-    let messageEvent = new Event<IPEndPoint * Message>()
+    let messageEvent = new Event<Node * Message>()
     let incomingAck = incomingMessages |> Observable.choose filterAck
                                        |> Observable.replayWindow config.PeriodTimeout
     
@@ -122,12 +122,12 @@ let run config incomingMessages =
     Observable.connect incomingAck |> ignore
 
     Observable.generateTimeSpan
-        state (fun _ -> true)
+        state (fun _ -> true) //(fun { SeqNumber = s } -> s < 10UL)
         nextState id
         (fun _ -> config.PeriodTimeout)
     |> Observable.subscribe runPeriod
     |> ignore
-      
+    
     incomingMessages |> Observable.subscribe (handle state)
                      |> ignore
     

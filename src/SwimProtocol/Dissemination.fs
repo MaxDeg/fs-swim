@@ -2,7 +2,7 @@
 
 type private Request =
 | Push of SwimEvent
-| Pull of int * AsyncReplyChannel<SwimEvent[]>
+| Pull of int * int * AsyncReplyChannel<MsgPack.Values.Value[]>
     
 type private PiggyBackedEvent = SwimEvent * int
 type private State = PiggyBackedEvent list
@@ -13,27 +13,39 @@ type EventDisseminator =
         member x.Push msg =
             Push msg |> x.Agent.Post
 
-        member x.Pull numMembers =
-            (fun rc -> Pull(numMembers, rc))
+        member x.Pull numMembers maxSize =
+            (fun rc -> Pull(numMembers, maxSize, rc))
             |> x.Agent.PostAndReply
 
 let private push event state =
     printfn "[Event push] %A" event
     (event, 0) :: state
 
-let private pull numMembers state =
+let private maxPiggyBack numMembers =
+    3. * round(log (float numMembers + 1.)) |> int
+
+let private sortCompare (e1, cnt1) (e2, cnt2) =
+    let eventOrder = function MembershipEvent _ -> 0 | UserEvent _ -> 1
+    compare (eventOrder e1) (eventOrder e2) + (cnt1 - cnt2)
+
+let private pull numMembers maxSize state =
     if numMembers = 0 then Array.empty, state
     else
-        let maxPiggyBack = 3. * round(log (float numMembers + 1.)) |> int
-        let state' = List.filter (fun (_, c) -> c < maxPiggyBack) state
-        let sortCompare (e1, cnt1) (e2, cnt2) =
-            let eventOrder = function MembershipEvent _ -> 0 | UserEvent _ -> 1
-            compare (eventOrder e1) (eventOrder e2) + (cnt1 - cnt2)
-        
-        state' |> List.sortWith sortCompare
-               |> List.map fst
-               |> List.toArray,
-        state'
+        let maxPiggyBack = maxPiggyBack numMembers
+        let sizeOf = Message.encodeEvent >> Message.sizeOfValues
+
+        let rec peek acc size = function
+        | (evt, inc)::tail ->
+            let size' = size - (sizeOf evt)
+            if size' >= 0 then peek ((evt, inc + 1) :: acc) size' tail
+            else acc, tail
+        | lst -> acc, lst
+
+        let selectedEvents, restEvents = peek [] maxSize (state |> List.sortWith sortCompare)
+
+        selectedEvents |> List.toArray
+                       |> Array.collect (fst >> Message.encodeEvent),
+        (selectedEvents |> List.filter (snd >> (>) maxPiggyBack)) @ restEvents
 
 let create() =
     let agent = MailboxProcessor<Request>.Start(fun box ->
@@ -42,8 +54,8 @@ let create() =
             let state' =
                 match msg with
                 | Push event -> push event state
-                | Pull (numMembers, replyChan) ->
-                    let membs, state' = pull numMembers state
+                | Pull (numMembers, maxSize, replyChan) ->
+                    let membs, state' = pull numMembers maxSize state
                     replyChan.Reply membs
                     state'
             

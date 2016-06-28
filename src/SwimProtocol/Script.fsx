@@ -23,5 +23,5 @@ open SwimProtocol
 
 let localName = System.Net.Dns.GetHostName()
 
-let node1 = Swim.init { Swim.defaultConfig with Port = 1337 } []
-let node2 = Swim.init { Swim.defaultConfig with Port = 1338 } [ (localName, 1337) ]
+let node1 = Swim.init { Swim.defaultConfig with Port = 1337us } []
+let node2 = Swim.init { Swim.defaultConfig with Port = 1338us } [ (localName, 1337us) ]
