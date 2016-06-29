@@ -32,8 +32,10 @@ type private Request =
     | Length of AsyncReplyChannel<int>
 
 type private State = 
-    { Members : Map<Node, MemberStatus>
-      SuspectTimeout: TimeSpan
+    { Local : Node
+      Incarnation : IncarnationNumber
+      Members : Map<Node, MemberStatus>
+      PeriodTimeout: TimeSpan
       DeadMembers : Set<Node>
       Disseminator : EventDisseminator }
 
@@ -45,6 +47,9 @@ let private disseminate memb status state =
         | Dead i -> MembershipEvent.Dead(memb, i)
     state.Disseminator.Push(MembershipEvent event)
 
+let private suspicionTimeout { PeriodTimeout = periodTimeout; Members = members } =
+    round(log (float members.Count + 1.)) * periodTimeout.TotalSeconds |> TimeSpan.FromSeconds
+
 let private updateMembers memb status state =
     disseminate memb status state
     match status with
@@ -55,28 +60,33 @@ let private updateMembers memb status state =
         { state with Members = state.Members |> Map.add memb status }
 
 let private revive memb incarnation state = 
-    maybe {
-        let status = state.Members |> Map.tryFind memb 
-                                   |> getOrElse (Alive 0UL)
-        let! newStatus = tryRevive status incarnation
-        return updateMembers memb newStatus state
-    }
+    if memb = state.Local then None
+    else
+        maybe {
+            let status = state.Members |> Map.tryFind memb 
+                                       |> getOrElse (Alive (incarnation - 1UL))
+            let! newStatus = tryRevive status incarnation
+            return updateMembers memb newStatus state
+        }
 
-let private suspect memb incarnation (agent : MailboxProcessor<Request>) state = 
-    maybe { 
-        let! status = state.Members |> Map.tryFind memb
-        let! newStatus = trySuspect status incarnation
-        state.SuspectTimeout |> agent.PostAfter(Kill(memb, incarnation))
-        return updateMembers memb newStatus state
-    }
+let private suspect memb incarnation (agent : MailboxProcessor<Request>) state =
+    if memb = state.Local then
+        let incarnation = state.Incarnation + 1UL
+        disseminate (state.Local) (Alive incarnation) state
+        Some { state with Incarnation = incarnation }
+    else
+        maybe {
+            let! status = state.Members |> Map.tryFind memb
+            let! newStatus = trySuspect status incarnation
+            suspicionTimeout state |> agent.PostAfter(Kill(memb, incarnation))
+            return updateMembers memb newStatus state
+        }
 
-let private death memb incarnation state = 
-    maybe {
-        let! status = state.Members |> Map.tryFind memb
-        match status with
-        | Suspected i when i <= incarnation -> return updateMembers memb (Dead incarnation) state
-        | _ -> ()
-    }
+let private death memb incarnation state =
+    if memb <> state.Local then
+        updateMembers memb (Dead incarnation) state |> Some
+    else
+        None
 
 type MemberList = 
     private { Agent : MailboxProcessor<Request> }
@@ -93,7 +103,7 @@ type MemberList =
 
 [<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module MemberList =
-    let createWith disseminator suspectTimeout members = 
+    let createWith disseminator (config : Config) members = 
         let rec handle (box : MailboxProcessor<Request>) (state : State) = async {
             let! msg = box.Receive()
             let state' = 
@@ -115,8 +125,10 @@ module MemberList =
         }
 
         let state = 
-            { Members = Map.empty
-              SuspectTimeout = suspectTimeout
+            { Local = config.Local
+              Incarnation = 0UL
+              Members = Map.empty
+              PeriodTimeout = config.PeriodTimeout
               DeadMembers = Set.empty
               Disseminator = disseminator }
 
@@ -124,7 +136,7 @@ module MemberList =
         
         { Agent = MailboxProcessor<Request>.Start(fun box -> handle box state') }
 
-    let create suspectTimeout disseminator = createWith disseminator suspectTimeout []
+    let create disseminator config = createWith disseminator config []
 
     let makeMember host port =
         let ipAddress =

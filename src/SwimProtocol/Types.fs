@@ -13,24 +13,8 @@ type PeriodSeqNumber = uint64
 type Node =
     { IPAddress : int64 
       Port : uint16 }
-
-// [<CustomEquality; CustomComparison>]
-// type Member = 
-//     { Name : string
-//       Address : IPEndPoint }
-    
-//     override x.Equals other =
-//         match other with
-//         | :? Member as o -> x.Name = o.Name
-//         | _ -> false
-    
-//     override x.GetHashCode() = hash x.Name
-//     interface IComparable with
-//         member x.CompareTo other = 
-//             match other with
-//             | :? Member as o -> compare x.Name o.Name
-//             | _ -> invalidArg "other" "cannot compare values of different types"
-
+    with
+        override x.ToString() = string x.IPAddress + ":" + string x.Port
 
 type Ping = PeriodSeqNumber
 type PingRequest = PeriodSeqNumber * Node
@@ -49,3 +33,11 @@ type MembershipEvent =
 type SwimEvent =
 | MembershipEvent of MembershipEvent
 | UserEvent of string
+
+type Config = 
+    { Port: uint16
+      Local : Node
+      PeriodTimeout : TimeSpan
+      PingTimeout: TimeSpan
+      PingRequestGroupSize : int
+      SuspectTimeout : TimeSpan }

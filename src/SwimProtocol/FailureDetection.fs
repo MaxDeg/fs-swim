@@ -41,10 +41,10 @@ let private pingRequest seqNr memb state =
 
     members |> List.take (Math.Min(state.PingRequestGroupSize, List.length members))
             |> List.iter (fun m -> state.TriggerMessage(m, PingRequestMessage(seqNr, memb)))
-    
 
-let private ackPing seqNr target { Local = local; TriggerMessage = trigger } =
-     trigger(target, AckMessage(seqNr, local))
+let private ackPing seqNr target { Local = local; MemberList = memberList; TriggerMessage = trigger } =
+    memberList.Alive target 0UL
+    trigger(target, AckMessage(seqNr, local))
     
 let private ackPingRequest seqNr memb target state =
     let pingResult =
@@ -57,27 +57,33 @@ let private ackPingRequest seqNr memb target state =
     | PingAcked -> state.TriggerMessage(target, AckMessage(seqNr,memb))
     | _ -> ()
 
-let private runPeriod ({ SeqNumber = seqNr; PingTargets = pingTargets; Local = local } as state) =
+let private random = new Random()
+
+let private runPeriod ({ SeqNumber = seqNr; PingTargets = pingTargets } as state) =
     maybe {
         let! memb, incarnation = List.tryHead pingTargets
-        ping seqNr memb state
-
-        let pingResult =
-            ackFor seqNr memb state
-            |> Observable.merge (pingTimeoutFor seqNr memb state)
-            |> Observable.perform (function PingTimeout(seqNr, memb) -> pingRequest seqNr memb state | _ -> ()) 
-            |> Observable.filter (function PingAcked _ -> true | PingTimeout _ -> false)
-            |> Observable.amb (periodTimeoutFor seqNr memb state)
-            |> Observable.head
-            |> Observable.wait
-
-        match pingResult with
-        | PingAcked ->
-            printfn "[%A] Ping %A successfully" local seqNr
-            state.MemberList.Alive memb incarnation
-        | PingTimeout _ ->
-            printfn "[%A] Failed to ping %A" local seqNr
+        if random.Next(0, 5) = 1 then
+            printfn "Disseminate suspect"
             state.MemberList.Suspect memb incarnation
+        else
+            ping seqNr memb state
+
+            let pingResult =
+                ackFor seqNr memb state
+                |> Observable.merge (pingTimeoutFor seqNr memb state)
+                |> Observable.perform (function PingTimeout(seqNr, memb) -> pingRequest seqNr memb state | _ -> ()) 
+                |> Observable.filter (function PingAcked _ -> true | PingTimeout _ -> false)
+                |> Observable.amb (periodTimeoutFor seqNr memb state)
+                |> Observable.head
+                |> Observable.wait
+
+            match pingResult with
+            | PingAcked ->
+                printfn "Ping %A successfully" seqNr
+                state.MemberList.Alive memb incarnation
+            | PingTimeout _ ->
+                printfn "Failed to ping %A" seqNr
+                state.MemberList.Suspect memb incarnation
     } |> ignore
 
 let private nextState state =
@@ -94,14 +100,7 @@ let private handle state (addr, msg) =
     | PingRequestMessage(seqNr, memb) -> ackPingRequest seqNr memb addr state
     | _ -> ()
 
-type Config =
-    { Local : Node
-      MemberList : MemberList
-      PeriodTimeout : TimeSpan
-      PingTimeout : TimeSpan
-      PingRequestGroupSize : int }
-
-let run config incomingMessages =
+let run (config : Config) memberList incomingMessages =
     let filterAck = function _, AckMessage ack -> Some ack | _ -> None
     let messageEvent = new Event<Node * Message>()
     let incomingAck = incomingMessages |> Observable.choose filterAck
@@ -110,10 +109,10 @@ let run config incomingMessages =
     let state =
         { SeqNumber = 0UL
           Local = config.Local
-          MemberList = config.MemberList
+          MemberList = memberList
           IncomingAck = incomingAck
           TriggerMessage = messageEvent.Trigger
-          PingTargets = config.MemberList.Members() |> List.shuffle
+          PingTargets = memberList.Members() |> List.shuffle
           PeriodTimeout = config.PeriodTimeout
           PingTimeout = config.PingTimeout
           PingRequestGroupSize = config.PingRequestGroupSize }
