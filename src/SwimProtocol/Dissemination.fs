@@ -18,7 +18,6 @@ type EventDisseminator =
             |> x.Agent.PostAndReply
 
 let private push event state =
-    printfn "[Event push] %A" event
     (event, 0) :: state
 
 let private maxPiggyBack numMembers =
@@ -29,7 +28,7 @@ let private sortCompare (e1, cnt1) (e2, cnt2) =
     compare (eventOrder e1) (eventOrder e2) + (cnt1 - cnt2)
 
 let private pull numMembers maxSize state =
-    if numMembers = 0 then Array.empty, state
+    if numMembers = 0 then [||], state
     else
         let maxPiggyBack = maxPiggyBack numMembers
         let sizeOf = Message.encodeEvent >> Message.sizeOfValues
@@ -61,6 +60,6 @@ let create() =
             
             return! loop state'
         }
-        loop List.empty)
+        loop [])
     
     { Agent = agent }

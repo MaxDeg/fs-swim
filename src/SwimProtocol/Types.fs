@@ -14,7 +14,7 @@ type Node =
     { IPAddress : int64 
       Port : uint16 }
     with
-        override x.ToString() = string x.IPAddress + ":" + string x.Port
+        override x.ToString() = string x.Port
 
 type Ping = PeriodSeqNumber
 type PingRequest = PeriodSeqNumber * Node
@@ -36,7 +36,6 @@ type SwimEvent =
 
 type Config = 
     { Port: uint16
-      Local : Node
       PeriodTimeout : TimeSpan
       PingTimeout: TimeSpan
       PingRequestGroupSize : int

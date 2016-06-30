@@ -7,8 +7,7 @@ let parseEndpoint (endpoint : string) =
     parts.[0], int parts.[1]
 
 [<EntryPoint>]
-let main argv = 
-    printfn "Swim Protocol starting"
+let main argv =
 //    let port = Udp.randomPort()
 //
 //    argv
@@ -18,9 +17,9 @@ let main argv =
 
     let localName = System.Net.Dns.GetHostName()
 
-    let node1 = Swim.init { Swim.defaultConfig with Port = 1337us } []
-    let node2 = Swim.init { Swim.defaultConfig with Port = 1338us } [ (localName, 1337us) ]
+    use __ = Swim.init { Swim.defaultConfig with Port = 1337us; PeriodTimeout = TimeSpan.FromSeconds(1.) } []
+    use __ = Swim.init { Swim.defaultConfig with Port = 1338us; PeriodTimeout = TimeSpan.FromSeconds(1.) } [ (localName, 1337us) ]
+    use __ = Swim.init { Swim.defaultConfig with Port = 1339us; PeriodTimeout = TimeSpan.FromSeconds(1.) } [ (localName, 1337us) ]
     
-    printfn "Swim Protocol started"
     Console.ReadKey() |> ignore
     0 // return an integer exit code

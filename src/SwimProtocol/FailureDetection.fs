@@ -26,10 +26,10 @@ let private ackFor seqNr memb { IncomingAck = incomingAck } =
     incomingAck |> Observable.filter (fun (ackSeqNr, ackMemb) -> seqNr = ackSeqNr && memb = ackMemb)
                 |> Observable.map (fun a -> PingAcked)
 
-let private pingTimeoutFor seqNr memb { PingTimeout = timeout } =
+let private pingTimeoutFor seqNr memb ({ PingTimeout = timeout } : State) =
     PingTimeout(seqNr, memb) |> Observable.single |> Observable.delay timeout |> Observable.head
     
-let private periodTimeoutFor seqNr memb { PeriodTimeout = timeout } =
+let private periodTimeoutFor seqNr memb ({ PeriodTimeout = timeout } : State) =
     PingTimeout(seqNr, memb) |> Observable.single |> Observable.delay timeout |> Observable.head
 
 let private ping seqNr memb { TriggerMessage = trigger } =
@@ -48,9 +48,8 @@ let private ackPing seqNr target { Local = local; MemberList = memberList; Trigg
     
 let private ackPingRequest seqNr memb target state =
     let pingResult =
-        ackFor seqNr memb state
-        |> Observable.merge (pingTimeoutFor seqNr memb state)
-        |> Observable.head
+        ackFor seqNr memb state |> Observable.merge (pingTimeoutFor seqNr memb state)
+                                |> Observable.head
         
     ping seqNr memb state
     match Observable.wait pingResult with
@@ -62,34 +61,33 @@ let private random = new Random()
 let private runPeriod ({ SeqNumber = seqNr; PingTargets = pingTargets } as state) =
     maybe {
         let! memb, incarnation = List.tryHead pingTargets
-        if random.Next(0, 5) = 1 then
-            printfn "Disseminate suspect"
+        if random.Next(0, 8) = 1 then
             state.MemberList.Suspect memb incarnation
         else
-            ping seqNr memb state
+        ping seqNr memb state
 
-            let pingResult =
-                ackFor seqNr memb state
-                |> Observable.merge (pingTimeoutFor seqNr memb state)
-                |> Observable.perform (function PingTimeout(seqNr, memb) -> pingRequest seqNr memb state | _ -> ()) 
-                |> Observable.filter (function PingAcked _ -> true | PingTimeout _ -> false)
-                |> Observable.amb (periodTimeoutFor seqNr memb state)
-                |> Observable.head
-                |> Observable.wait
+        let pingResult =
+            ackFor seqNr memb state
+            |> Observable.merge (pingTimeoutFor seqNr memb state)
+            |> Observable.perform (function PingTimeout(seqNr, memb) -> pingRequest seqNr memb state | _ -> ()) 
+            |> Observable.filter (function PingAcked _ -> true | PingTimeout _ -> false)
+            |> Observable.amb (periodTimeoutFor seqNr memb state)
+            |> Observable.head
+            |> Observable.wait
 
-            match pingResult with
-            | PingAcked ->
-                printfn "Ping %A successfully" seqNr
-                state.MemberList.Alive memb incarnation
-            | PingTimeout _ ->
-                printfn "Failed to ping %A" seqNr
-                state.MemberList.Suspect memb incarnation
+        match pingResult with
+        | PingAcked ->
+            printfn "[%O] Ping %O successfully" state.Local memb
+            state.MemberList.Alive memb incarnation
+        | PingTimeout _ ->
+            printfn "[%O] Failed to ping %O" state.Local memb
+            state.MemberList.Suspect memb incarnation
     } |> ignore
 
 let private nextState state =
     let pingTargets =
         match state.PingTargets with
-        | [] | _::[] -> state.MemberList.Members() |> List.shuffle
+        | [] | [ _ ] -> state.MemberList.Members() |> List.shuffle
         | _::tail -> tail
     
     { state with SeqNumber = state.SeqNumber + 1UL; PingTargets = pingTargets }
@@ -100,7 +98,7 @@ let private handle state (addr, msg) =
     | PingRequestMessage(seqNr, memb) -> ackPingRequest seqNr memb addr state
     | _ -> ()
 
-let run (config : Config) memberList incomingMessages =
+let run (config : Config) local memberList incomingMessages =
     let filterAck = function _, AckMessage ack -> Some ack | _ -> None
     let messageEvent = new Event<Node * Message>()
     let incomingAck = incomingMessages |> Observable.choose filterAck
@@ -108,7 +106,7 @@ let run (config : Config) memberList incomingMessages =
     
     let state =
         { SeqNumber = 0UL
-          Local = config.Local
+          Local = local
           MemberList = memberList
           IncomingAck = incomingAck
           TriggerMessage = messageEvent.Trigger
@@ -121,7 +119,7 @@ let run (config : Config) memberList incomingMessages =
     Observable.connect incomingAck |> ignore
 
     Observable.generateTimeSpan
-        state (fun _ -> true) //(fun { SeqNumber = s } -> s < 10UL)
+        state (fun { SeqNumber = s } -> s < 10UL)
         nextState id
         (fun _ -> config.PeriodTimeout)
     |> Observable.subscribe runPeriod

@@ -13,17 +13,6 @@ type private MemberStatus =
     | Suspected of IncarnationNumber
     | Dead of IncarnationNumber
 
-let private tryRevive status nextIncarnation = 
-    match status with
-    | Alive i | Suspected i when nextIncarnation > i -> Some(Alive nextIncarnation)
-    | Alive i | Suspected i | Dead i -> None
-
-let private trySuspect status nextIncarnation = 
-    match status with
-    | Alive i when nextIncarnation >= i -> Some(Suspected nextIncarnation)
-    | Suspected i when nextIncarnation > i -> Some(Suspected nextIncarnation)
-    | _ -> None
-
 type private Request = 
     | Revive of Node * IncarnationNumber
     | Suspect of Node * IncarnationNumber
@@ -39,54 +28,68 @@ type private State =
       DeadMembers : Set<Node>
       Disseminator : EventDisseminator }
 
-let private disseminate memb status state =
-    let event = 
-        match status with
-        | Alive i -> MembershipEvent.Alive(memb, i)
-        | Suspected i -> MembershipEvent.Suspect(memb, i)
-        | Dead i -> MembershipEvent.Dead(memb, i)
-    state.Disseminator.Push(MembershipEvent event)
+let private disseminate state evt =
+    state.Disseminator.Push(MembershipEvent evt)
 
 let private suspicionTimeout { PeriodTimeout = periodTimeout; Members = members } =
-    round(log (float members.Count + 1.)) * periodTimeout.TotalSeconds |> TimeSpan.FromSeconds
+    (float members.Count + 1. |> log |> round) * 5.0 * periodTimeout.TotalSeconds |> TimeSpan.FromSeconds
 
 let private updateMembers memb status state =
-    disseminate memb status state
     match status with
-    | Dead _ -> 
+    | Dead inc ->
+        printfn "[%O] %O(%i) is Dead" state.Local memb inc
+        MembershipEvent.Dead(memb, inc) |> disseminate state
         { state with Members = state.Members |> Map.remove memb
                      DeadMembers = state.DeadMembers |> Set.add memb }
-    | _ -> 
+    | Suspected inc ->
+        printfn "[%O] %O(%i) is Suspect" state.Local memb inc
+        MembershipEvent.Suspect(memb, inc) |> disseminate state
+        { state with Members = state.Members |> Map.add memb status }
+    | Alive inc ->
+        printfn "[%O] %O(%i) is Alive" state.Local memb inc
+        MembershipEvent.Alive(memb, inc) |> disseminate state
         { state with Members = state.Members |> Map.add memb status }
 
 let private revive memb incarnation state = 
     if memb = state.Local then None
     else
-        maybe {
-            let status = state.Members |> Map.tryFind memb 
-                                       |> getOrElse (Alive (incarnation - 1UL))
-            let! newStatus = tryRevive status incarnation
-            return updateMembers memb newStatus state
-        }
+        match state.Members |> Map.tryFind memb with
+        | Some(Alive i) | Some(Suspected i) when incarnation > i ->
+            updateMembers memb (Alive incarnation) state |> Some
+        | Some _ -> None
+        | None -> updateMembers memb (Alive incarnation) state |> Some
 
 let private suspect memb incarnation (agent : MailboxProcessor<Request>) state =
     if memb = state.Local then
-        let incarnation = state.Incarnation + 1UL
-        disseminate (state.Local) (Alive incarnation) state
+        let incarnation = if incarnation < state.Incarnation then state.Incarnation
+                          else state.Incarnation + 1UL
+
+        MembershipEvent.Alive(state.Local, incarnation) |> disseminate state
         Some { state with Incarnation = incarnation }
     else
         maybe {
             let! status = state.Members |> Map.tryFind memb
-            let! newStatus = trySuspect status incarnation
+            let! newStatus =
+                match status with
+                | Alive i when incarnation >= i -> Some(Suspected incarnation)
+                | Suspected i when incarnation > i -> Some(Suspected incarnation)
+                | _ -> None
+
             suspicionTimeout state |> agent.PostAfter(Kill(memb, incarnation))
             return updateMembers memb newStatus state
         }
 
 let private death memb incarnation state =
-    if memb <> state.Local then
-        updateMembers memb (Dead incarnation) state |> Some
+    if memb = state.Local then None
     else
-        None
+        maybe {
+            let! status = state.Members |> Map.tryFind memb
+            match status with
+            | Alive i
+            | Suspected i when incarnation >= i ->
+                return updateMembers memb (Dead incarnation) state
+            | _ -> ()
+        }
 
 type MemberList = 
     private { Agent : MailboxProcessor<Request> }
@@ -103,7 +106,7 @@ type MemberList =
 
 [<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module MemberList =
-    let createWith disseminator (config : Config) members = 
+    let createWith disseminator (config : Config) local members = 
         let rec handle (box : MailboxProcessor<Request>) (state : State) = async {
             let! msg = box.Receive()
             let state' = 
@@ -124,26 +127,27 @@ module MemberList =
             return! handle box state'
         }
 
+        let members' = members |> List.map (fun m -> m, Alive 0UL)
+                               |> Map.ofList
+
         let state = 
-            { Local = config.Local
+            { Local = local
               Incarnation = 0UL
-              Members = Map.empty
+              Members = members'
               PeriodTimeout = config.PeriodTimeout
               DeadMembers = Set.empty
               Disseminator = disseminator }
-
-        let state' = List.fold (fun s m -> updateMembers m (Alive 1UL) s) state members
         
-        { Agent = MailboxProcessor<Request>.Start(fun box -> handle box state') }
+        { Agent = MailboxProcessor<Request>.Start(fun box -> handle box state) }
 
-    let create disseminator config = createWith disseminator config []
+    let create disseminator config local = createWith disseminator config local []
 
     let makeMember host port =
         let ipAddress =
             Dns.GetHostAddresses(host)
             |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
             |> Array.head
-
+        
         { IPAddress = ipAddress.GetAddressBytes() |> toInt64
           Port = port }
 

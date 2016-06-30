@@ -24,6 +24,6 @@ open SwimProtocol
 
 let localName = System.Net.Dns.GetHostName()
 
-let node1 = Swim.init { Swim.defaultConfig with Port = 1337us; PeriodTimeout = TimeSpan.FromSeconds(5.) } []
-let node2 = Swim.init { Swim.defaultConfig with Port = 1338us; PeriodTimeout = TimeSpan.FromSeconds(5.) } [ (localName, 1337us) ]
-let node3 = Swim.init { Swim.defaultConfig with Port = 1339us; PeriodTimeout = TimeSpan.FromSeconds(5.) } [ (localName, 1337us) ]
+let node1 = Swim.init { Swim.defaultConfig with Port = 1337us; PeriodTimeout = TimeSpan.FromSeconds(1.) } []
+let node2 = Swim.init { Swim.defaultConfig with Port = 1338us; PeriodTimeout = TimeSpan.FromSeconds(1.) } [ (localName, 1337us) ]
+let node3 = Swim.init { Swim.defaultConfig with Port = 1339us; PeriodTimeout = TimeSpan.FromSeconds(1.) } [ (localName, 1337us) ]

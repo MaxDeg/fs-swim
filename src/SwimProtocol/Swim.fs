@@ -12,7 +12,6 @@ type Host = string * int
 
 let defaultConfig =
     { Port = 1337us
-      Local = MemberList.makeLocal 1337us
       PeriodTimeout = TimeSpan.FromSeconds 2.
       PingTimeout = TimeSpan.FromMilliseconds 300.
       PingRequestGroupSize = 3
@@ -22,16 +21,16 @@ let private decodeMessage (addr, bytes) =
     Message.decode bytes
     |> Option.map (fun (msg, events) -> (addr, msg), events)
 
-let init (config : Config) hosts = 
-    let { Port = port } = config
-
+let init ({ Port = port } as config : Config) hosts =
     let local = MemberList.makeLocal port
     let disseminator = Dissemination.create()
     let udp = Udp.connect (int port)
-        
+
+    printfn "Starting Swim protocol on %O" local
+    
     let memberList =
         hosts |> List.map (fun (h, p) -> MemberList.makeMember h p)
-              |> MemberList.createWith disseminator config
+              |> MemberList.createWith disseminator config local
 
     let encodeMessage msg =
         let encodedMsg = Message.encodeMessage msg
@@ -43,17 +42,16 @@ let init (config : Config) hosts =
     
     let diss =
         messageReceived |> Observable.map snd
-                        |> Observable.subscribe (fun evts ->
-                            evts
-                            |> List.choose (function MembershipEvent e -> Some e | _ -> None)
-                            |> List.iter (function
+                        |> Observable.subscribe (
+                            List.choose (function MembershipEvent e -> Some e | _ -> None)
+                            >> List.iter (function
                                             | Alive(n, inc) -> memberList.Alive n inc
                                             | Suspect(n, inc) -> memberList.Suspect n inc
                                             | Dead(n, inc) -> memberList.Dead n inc))
 
     let failureDetection =
         messageReceived |> Observable.map fst
-                        |> FailureDetection.run config memberList
+                        |> FailureDetection.run config local memberList
                         |> Observable.map (fun (addr, msg) -> addr, encodeMessage msg)
                         |> Observable.subscribe udp.Send
 
