@@ -8,7 +8,7 @@ type private PiggyBackedEvent = SwimEvent * int
 type private State = PiggyBackedEvent list
 
 type EventDisseminator =
-    private { Agent : MailboxProcessor<Request> }
+    private { Agent : Agent<Request> }
     with
         member x.Push msg =
             Push msg |> x.Agent.Post
@@ -47,7 +47,7 @@ let private pull numMembers maxSize state =
         (selectedEvents |> List.filter (snd >> (>) maxPiggyBack)) @ restEvents
 
 let create() =
-    let agent = MailboxProcessor<Request>.Start(fun box ->
+    let agent = Agent<Request>.Start(fun box ->
         let rec loop state = async {
             let! msg = box.Receive()
             let state' =

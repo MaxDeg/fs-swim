@@ -28,13 +28,13 @@ let private ackFor seqNr memb { IncomingAck = incomingAck } =
 
 let private pingTimeoutFor seqNr memb ({ PingTimeout = timeout } : State) =
     PingTimeout(seqNr, memb) |> Observable.single |> Observable.delay timeout |> Observable.head
-    
+
 let private periodTimeoutFor seqNr memb ({ PeriodTimeout = timeout } : State) =
     PingTimeout(seqNr, memb) |> Observable.single |> Observable.delay timeout |> Observable.head
 
 let private ping seqNr memb { TriggerMessage = trigger } =
     trigger(memb, PingMessage seqNr)
-    
+
 let private pingRequest seqNr memb state =
     let members = state.MemberList.Members() |> List.shuffle
                                              |> List.choose (fun (m, _) -> if m <> memb then Some m else None)
@@ -45,12 +45,12 @@ let private pingRequest seqNr memb state =
 let private ackPing seqNr target { Local = local; MemberList = memberList; TriggerMessage = trigger } =
     memberList.Alive target 0UL
     trigger(target, AckMessage(seqNr, local))
-    
+
 let private ackPingRequest seqNr memb target state =
     let pingResult =
         ackFor seqNr memb state |> Observable.merge (pingTimeoutFor seqNr memb state)
                                 |> Observable.head
-        
+
     ping seqNr memb state
     match Observable.wait pingResult with
     | PingAcked -> state.TriggerMessage(target, AckMessage(seqNr,memb))
@@ -69,7 +69,7 @@ let private runPeriod ({ SeqNumber = seqNr; PingTargets = pingTargets } as state
         let pingResult =
             ackFor seqNr memb state
             |> Observable.merge (pingTimeoutFor seqNr memb state)
-            |> Observable.perform (function PingTimeout(seqNr, memb) -> pingRequest seqNr memb state | _ -> ()) 
+            |> Observable.perform (function PingTimeout(seqNr, memb) -> pingRequest seqNr memb state | _ -> ())
             |> Observable.filter (function PingAcked _ -> true | PingTimeout _ -> false)
             |> Observable.amb (periodTimeoutFor seqNr memb state)
             |> Observable.head
@@ -89,7 +89,7 @@ let private nextState state =
         match state.PingTargets with
         | [] | [ _ ] -> state.MemberList.Members() |> List.shuffle
         | _::tail -> tail
-    
+
     { state with SeqNumber = state.SeqNumber + 1UL; PingTargets = pingTargets }
 
 let private handle state (addr, msg) =
@@ -103,7 +103,7 @@ let run (config : Config) local memberList incomingMessages =
     let messageEvent = new Event<Node * Message>()
     let incomingAck = incomingMessages |> Observable.choose filterAck
                                        |> Observable.replayWindow config.PeriodTimeout
-    
+
     let state =
         { SeqNumber = 0UL
           Local = local
@@ -124,8 +124,8 @@ let run (config : Config) local memberList incomingMessages =
         (fun _ -> config.PeriodTimeout)
     |> Observable.subscribe runPeriod
     |> ignore
-    
+
     incomingMessages |> Observable.subscribe (handle state)
                      |> ignore
-    
+
     messageEvent.Publish

@@ -92,7 +92,7 @@ let private death memb incarnation state =
         }
 
 type MemberList = 
-    private { Agent : MailboxProcessor<Request> }
+    private { Agent : Agent<Request> }
     with
         member x.Alive memb incarnation =
             Revive(memb, incarnation) |> x.Agent.Post
@@ -107,7 +107,7 @@ type MemberList =
 [<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module MemberList =
     let createWith disseminator (config : Config) local members = 
-        let rec handle (box : MailboxProcessor<Request>) (state : State) = async {
+        let rec handle (box : Agent<Request>) (state : State) = async {
             let! msg = box.Receive()
             let state' = 
                 match msg with
@@ -138,7 +138,7 @@ module MemberList =
               DeadMembers = Set.empty
               Disseminator = disseminator }
         
-        { Agent = MailboxProcessor<Request>.Start(fun box -> handle box state) }
+        { Agent = Agent<Request>.Start(fun box -> handle box state) }
 
     let create disseminator config local = createWith disseminator config local []
 
