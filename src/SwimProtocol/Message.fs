@@ -12,7 +12,7 @@ module Message =
             UInt16 node.Port
         |]
     
-    let private (|Member|_|) values =
+    let private (|Node|_|) values =
         match values with
         | Array [| Int64 ip; UInt16 port |] ->
             Some { IPAddress = ip
@@ -25,7 +25,7 @@ module Message =
 
     let private decodePing bytes =
         match Unpacker.unpack bytes with
-        | UInt64 seqNr -> Ping seqNr |> Some
+        | UInt64 seqNr -> Sequence.makeFrom seqNr |> Ping |> Some
         | _ -> None
 
     // PingRequest encoding
@@ -37,8 +37,8 @@ module Message =
     
     let private decodePingRequest bytes =
         match Unpacker.unpack bytes with
-        | Array [| UInt64 seqNr; Member memb |] -> 
-            PingRequest(seqNr, memb) |> Some 
+        | Array [| UInt64 seqNr; Node memb |] -> 
+            PingRequest(Sequence.makeFrom seqNr, memb) |> Some 
         | _ -> None
 
     // Ack encoding
@@ -48,39 +48,53 @@ module Message =
             yield encodeNode memb
         |]
     
-    let private decodeAck bytes =
-        match Unpacker.unpack bytes with
-        | Array [| UInt64 seqNr; Member memb |] -> 
-            Ack(seqNr, memb) |> Some 
+    let private decodeAck = 
+        Unpacker.unpack >> function
+        | Array [| UInt64 seqNr; Node memb |] -> 
+            Ack(Sequence.makeFrom seqNr, memb) |> Some 
+        | _ -> None
+        
+    // Leave encoding
+    let private encodeLeave inc =
+        UInt64 inc |> Packer.pack
+        
+    let private decodeLeave = 
+        Unpacker.unpack >> function
+        | UInt64 inc -> IncarnationNumber.makeFrom inc |> Leave |> Some
         | _ -> None
 
     // Events encoding
     let private decodeEvents values =
         let rec decodeNextEvent acc = function
-        | UInt8 id::Member m::UInt64 inc::tail when id = 0uy ->
-            decodeNextEvent (MembershipEvent(Alive(m, inc)) :: acc) tail
-        | UInt8 id::Member m::UInt64 inc::tail when id = 1uy ->
-            decodeNextEvent (MembershipEvent(Suspect(m, inc)) :: acc) tail
-        | UInt8 id::Member m::UInt64 inc::tail when id = 2uy ->
-            decodeNextEvent (MembershipEvent(Dead(m, inc)) :: acc) tail
+        | UInt8 id::Node m::UInt64 inc::tail when id = 0uy ->
+            decodeNextEvent (Membership(m, IncarnationNumber.makeFrom inc |> Alive) :: acc) tail
+            
+        | UInt8 id::Node m::UInt64 inc::tail when id = 1uy ->
+            decodeNextEvent (Membership(m, IncarnationNumber.makeFrom inc |> Suspect) :: acc) tail
+            
+        | UInt8 id::Node m::UInt64 inc::tail when id = 2uy ->
+            decodeNextEvent (Membership(m, IncarnationNumber.makeFrom inc |> Dead) :: acc) tail
+            
         | String e::tail ->
-            decodeNextEvent(UserEvent e :: acc) tail
+            decodeNextEvent(User e :: acc) tail
+            
         | [] -> acc
         | _ -> []
 
         decodeNextEvent [] values
     
     let encodeEvent = function
-        | MembershipEvent(Alive(m, inc)) -> [| UInt8 0uy; encodeNode m; UInt64 inc |]
-        | MembershipEvent(Suspect(m, inc)) -> [| UInt8 1uy; encodeNode m; UInt64 inc |]
-        | MembershipEvent(Dead(m, inc)) -> [| UInt8 2uy; encodeNode m; UInt64 inc |]
-        | UserEvent e -> [| String e |]
+        | Membership(m, Alive(IncarnationNumber inc)) -> [| UInt8 0uy; encodeNode m; UInt64 inc |]
+        | Membership(m, Suspect(IncarnationNumber inc)) -> [| UInt8 1uy; encodeNode m; UInt64 inc |]
+        | Membership(m, Dead(IncarnationNumber inc)) -> [| UInt8 2uy; encodeNode m; UInt64 inc |]
+        | User e -> [| String e |]
     
     let encodeMessage msg =
         match msg with
-        | Ping s -> Extension(0y, encodePing s)
-        | PingRequest(s, m) -> Extension(1y, encodePingRequest s m)
-        | Ack(s, m) -> Extension(2y, encodeAck s m)
+        | Ping(SeqNumber s) -> Extension(0y, encodePing s)
+        | PingRequest(SeqNumber s, m) -> Extension(1y, encodePingRequest s m)
+        | Ack(SeqNumber s, m) -> Extension(2y, encodeAck s m)
+        | Leave(IncarnationNumber i) -> Extension(3y, encodeLeave i)
 
     let encode msg events : byte[] =
         Array [|
@@ -96,6 +110,8 @@ module Message =
             decodePingRequest rest |> Option.map (fun p -> p, decodeEvents events)
         | Arraylist(Value.Extension(id, rest) :: events) when id = 2y ->
             decodeAck rest |> Option.map (fun p -> p, decodeEvents events)
+        | Arraylist(Value.Extension(id, rest) :: events) when id = 3y ->
+            decodeLeave rest |> Option.map (fun p -> p, decodeEvents events)            
         | _ -> None
 
     let sizeOf value =

@@ -1,5 +1,4 @@
 FSharpx.Extras
-FSharp.Control.Reactive
 File:DataType.fs
 File:Value.fs
 File:Packer.fs

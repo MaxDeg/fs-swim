@@ -2,7 +2,6 @@ source https://www.nuget.org/api/v2
 
 nuget FAKE
 nuget FSharpx.Extras
-nuget FSharp.Control.Reactive
 github MaxDeg/fs-msgpack src/MsgPack/DataType.fs
 github MaxDeg/fs-msgpack src/MsgPack/Value.fs
 github MaxDeg/fs-msgpack src/MsgPack/Packer.fs

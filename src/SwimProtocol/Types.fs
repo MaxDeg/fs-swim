@@ -11,8 +11,12 @@ type SeqNumber =
 [<RequireQualifiedAccess>]
 module Sequence =
     let make() = SeqNumber(0UL)
+    let makeFrom value = SeqNumber(value)
     let incr = function
         | SeqNumber s -> SeqNumber(s + 1UL)
+        
+    let (|SeqNumber|) = function
+        | SeqNumber s -> s 
 
 type IncarnationNumber =
     private | IncarnationNumber of uint64
@@ -20,8 +24,12 @@ type IncarnationNumber =
 [<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module IncarnationNumber =
     let make() = IncarnationNumber(0UL)
+    let makeFrom value = IncarnationNumber(value)
     let incr = function
         | IncarnationNumber i -> IncarnationNumber(i + 1UL)
+        
+    let (|IncarnationNumber|) = function
+        | IncarnationNumber i -> i
 
 [<StructuralEquality; StructuralComparison>]
 type Node =
