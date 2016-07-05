@@ -25,7 +25,7 @@ module Message =
 
     let private decodePing bytes =
         match Unpacker.unpack bytes with
-        | UInt64 seqNr -> PingMessage seqNr |> Some
+        | UInt64 seqNr -> Ping seqNr |> Some
         | _ -> None
 
     // PingRequest encoding
@@ -38,7 +38,7 @@ module Message =
     let private decodePingRequest bytes =
         match Unpacker.unpack bytes with
         | Array [| UInt64 seqNr; Member memb |] -> 
-            PingRequestMessage(seqNr, memb) |> Some 
+            PingRequest(seqNr, memb) |> Some 
         | _ -> None
 
     // Ack encoding
@@ -51,7 +51,7 @@ module Message =
     let private decodeAck bytes =
         match Unpacker.unpack bytes with
         | Array [| UInt64 seqNr; Member memb |] -> 
-            AckMessage(seqNr, memb) |> Some 
+            Ack(seqNr, memb) |> Some 
         | _ -> None
 
     // Events encoding
@@ -78,9 +78,9 @@ module Message =
     
     let encodeMessage msg =
         match msg with
-        | PingMessage s -> Extension(0y, encodePing s)
-        | PingRequestMessage(s, m) -> Extension(1y, encodePingRequest s m)
-        | AckMessage(s, m) -> Extension(2y, encodeAck s m)
+        | Ping s -> Extension(0y, encodePing s)
+        | PingRequest(s, m) -> Extension(1y, encodePingRequest s m)
+        | Ack(s, m) -> Extension(2y, encodeAck s m)
 
     let encode msg events : byte[] =
         Array [|

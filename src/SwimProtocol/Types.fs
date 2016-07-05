@@ -5,38 +5,44 @@ open System.Net
 
 type Agent<'a> = MailboxProcessor<'a>
 
-type IncarnationNumber = uint64
+type SeqNumber =
+    private | SeqNumber of uint64
 
-type PeriodSeqNumber = uint64
+[<RequireQualifiedAccess>]
+module Sequence =
+    let make() = SeqNumber(0UL)
+    let incr = function
+        | SeqNumber s -> SeqNumber(s + 1UL)
+
+type IncarnationNumber =
+    private | IncarnationNumber of uint64
+
+[<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module IncarnationNumber =
+    let make() = IncarnationNumber(0UL)
+    let incr = function
+        | IncarnationNumber i -> IncarnationNumber(i + 1UL)
 
 [<StructuralEquality; StructuralComparison>]
 type Node =
-    { IPAddress : int64 
+    { IPAddress : int64
       Port : uint16 }
-    with
-        override x.ToString() = string x.Port
+    override x.ToString() = string x.Port
 
-type Ping = PeriodSeqNumber
-type PingRequest = PeriodSeqNumber * Node
-type Ack = PeriodSeqNumber * Node
+type LocalNode = Node * IncarnationNumber
 
-type Message = 
-    | PingMessage of Ping
-    | PingRequestMessage of PingRequest
-    | AckMessage of Ack
+type NodeStatus =
+    | Alive of IncarnationNumber
+    | Suspect of IncarnationNumber
+    | Dead of IncarnationNumber
 
-type MembershipEvent = 
-| Alive of Node * IncarnationNumber
-| Suspect of Node * IncarnationNumber
-| Dead of Node * IncarnationNumber
-
+[<StructuralEquality; StructuralComparison>]
 type SwimEvent =
-| MembershipEvent of MembershipEvent
-| UserEvent of string
+    | Membership of Node * NodeStatus
+    | User of string
 
-type Config = 
-    { Port: uint16
-      PeriodTimeout : TimeSpan
-      PingTimeout: TimeSpan
-      PingRequestGroupSize : int
-      SuspectTimeout : TimeSpan }
+type SwimMessage =
+    | Ping of SeqNumber
+    | PingRequest of SeqNumber * Node
+    | Ack of SeqNumber * Node
+    | Leave of IncarnationNumber
