@@ -84,17 +84,17 @@ module Message =
         decodeNextEvent [] values
     
     let encodeEvent = function
-        | Membership(m, Alive(IncarnationNumber inc)) -> [| UInt8 0uy; encodeNode m; UInt64 inc |]
-        | Membership(m, Suspect(IncarnationNumber inc)) -> [| UInt8 1uy; encodeNode m; UInt64 inc |]
-        | Membership(m, Dead(IncarnationNumber inc)) -> [| UInt8 2uy; encodeNode m; UInt64 inc |]
+        | Membership(m, Alive(IncarnationNumber.Number inc)) -> [| UInt8 0uy; encodeNode m; UInt64 inc |]
+        | Membership(m, Suspect(IncarnationNumber.Number inc)) -> [| UInt8 1uy; encodeNode m; UInt64 inc |]
+        | Membership(m, Dead(IncarnationNumber.Number inc)) -> [| UInt8 2uy; encodeNode m; UInt64 inc |]
         | User e -> [| String e |]
     
     let encodeMessage msg =
         match msg with
-        | Ping(SeqNumber s) -> Extension(0y, encodePing s)
-        | PingRequest(SeqNumber s, m) -> Extension(1y, encodePingRequest s m)
-        | Ack(SeqNumber s, m) -> Extension(2y, encodeAck s m)
-        | Leave(IncarnationNumber i) -> Extension(3y, encodeLeave i)
+        | Ping(Sequence.Number s) -> Extension(0y, encodePing s)
+        | PingRequest(Sequence.Number s, m) -> Extension(1y, encodePingRequest s m)
+        | Ack(Sequence.Number s, m) -> Extension(2y, encodeAck s m)
+        | Leave(IncarnationNumber.Number i) -> Extension(3y, encodeLeave i)
 
     let encode msg events : byte[] =
         Array [|

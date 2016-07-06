@@ -40,55 +40,6 @@
     <Prefer32Bit>true</Prefer32Bit>
     <OtherFlags />
   </PropertyGroup>
-  <ItemGroup>
-    <Compile Include="..\..\paket-files\MaxDeg\fs-msgpack\src\MsgPack\DataType.fs">
-      <Paket>True</Paket>
-      <Link>paket-files/DataType.fs</Link>
-    </Compile>
-    <Compile Include="..\..\paket-files\MaxDeg\fs-msgpack\src\MsgPack\Value.fs">
-      <Paket>True</Paket>
-      <Link>paket-files/Value.fs</Link>
-    </Compile>
-    <Compile Include="..\..\paket-files\MaxDeg\fs-msgpack\src\MsgPack\Packer.fs">
-      <Paket>True</Paket>
-      <Link>paket-files/Packer.fs</Link>
-    </Compile>
-    <Compile Include="..\..\paket-files\MaxDeg\fs-msgpack\src\MsgPack\Unpacker.fs">
-      <Paket>True</Paket>
-      <Link>paket-files/Unpacker.fs</Link>
-    </Compile>
-    <Reference Include="mscorlib" />
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Numerics" />
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Include="../../paket-files/MaxDeg/fs-msgpack/src/MsgPack/DataType.fs">
-      <Link>paket-files/DataType.fs</Link>
-    </Compile>
-    <Compile Include="../../paket-files/MaxDeg/fs-msgpack/src/MsgPack/Value.fs">
-      <Link>paket-files/Value.fs</Link>
-    </Compile>
-    <Compile Include="../../paket-files/MaxDeg/fs-msgpack/src/MsgPack/Packer.fs">
-      <Link>paket-files/Packer.fs</Link>
-    </Compile>
-    <Compile Include="../../paket-files/MaxDeg/fs-msgpack/src/MsgPack/Unpacker.fs">
-      <Link>paket-files/Unpacker.fs</Link>
-    </Compile>
-    <Compile Include="AssemblyInfo.fs" />
-    <Compile Include="Utils.fs" />
-    <Compile Include="LamportTimestamp.fs" />
-    <Compile Include="Types.fs" />
-    <Compile Include="Message.fs" />
-    <Compile Include="Udp.fs" />
-    <Compile Include="Transport.fs" />
-    <Compile Include="Disseminator.fs" />
-    <Compile Include="Dissemination.fs" />
-    <Compile Include="MemberList.fs" />
-    <Compile Include="Swim.fs" />
-    <None Include="Script.fsx" />
-    <Compile Include="Program.fs" />
-  </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <Choose>
     <When Condition="'$(VisualStudioVersion)' == '11.0'">
@@ -230,4 +181,35 @@
       </ItemGroup>
     </When>
   </Choose>
+  <ItemGroup>
+    <Compile Include="../../paket-files/MaxDeg/fs-msgpack/src/MsgPack/DataType.fs">
+      <Link>paket-files/DataType.fs</Link>
+    </Compile>
+    <Compile Include="../../paket-files/MaxDeg/fs-msgpack/src/MsgPack/Value.fs">
+      <Link>paket-files/Value.fs</Link>
+    </Compile>
+    <Compile Include="../../paket-files/MaxDeg/fs-msgpack/src/MsgPack/Packer.fs">
+      <Link>paket-files/Packer.fs</Link>
+    </Compile>
+    <Compile Include="../../paket-files/MaxDeg/fs-msgpack/src/MsgPack/Unpacker.fs">
+      <Link>paket-files/Unpacker.fs</Link>
+    </Compile>
+    <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="Utils.fs" />
+    <Compile Include="LamportTimestamp.fs" />
+    <Compile Include="Types.fs" />
+    <Compile Include="Message.fs" />
+    <Compile Include="Udp.fs" />
+    <Compile Include="Disseminator.fs" />
+    <Compile Include="MemberList.fs" />
+    <Compile Include="Swim.fs" />
+    <None Include="Script.fsx" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="mscorlib" />
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Numerics" />
+  </ItemGroup>
 </Project>

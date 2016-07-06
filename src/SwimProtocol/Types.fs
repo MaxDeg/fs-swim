@@ -5,6 +5,29 @@ open System.Net
 
 type Agent<'a> = MailboxProcessor<'a>
 
+[<RequireQualifiedAccess>]
+module Agent =
+    let spawn (state : 's) (handler : 'a -> 's -> 's) =
+        Agent<'a>.Start(fun box ->
+            let rec loop state' = async {
+                let! msg = box.Receive()
+                return! (handler msg state') |> loop
+            }
+
+            loop state)
+
+    let post msg (agent : Agent<'a>) =
+        agent.Post msg
+        
+    let postAfter msg (timeout : TimeSpan) (agent : Agent<'a>) =
+        Async.Start(async { 
+            do! Async.Sleep(timeout.TotalMilliseconds |> int)
+            agent.Post msg
+        })
+        
+    let postAndReply msg (agent : Agent<'a>) =
+        agent.PostAndReply(fun rChan -> msg)
+
 type SeqNumber =
     private | SeqNumber of uint64
 
@@ -15,7 +38,7 @@ module Sequence =
     let incr = function
         | SeqNumber s -> SeqNumber(s + 1UL)
         
-    let (|SeqNumber|) = function
+    let (|Number|) = function
         | SeqNumber s -> s 
 
 type IncarnationNumber =
@@ -28,7 +51,7 @@ module IncarnationNumber =
     let incr = function
         | IncarnationNumber i -> IncarnationNumber(i + 1UL)
         
-    let (|IncarnationNumber|) = function
+    let (|Number|) = function
         | IncarnationNumber i -> i
 
 [<StructuralEquality; StructuralComparison>]

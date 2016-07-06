@@ -63,9 +63,3 @@ module List =
         let shuffled = shuffle' [| 0..length - 1 |] (length - 1)
         List.permute (fun i -> shuffled.[i]) list
 
-[<RequireQualifiedAccess>]
-module Observable =
-    open FSharp.Control.Reactive
-
-    let timeoutSpanOption timeout =
-        Observable.timeoutSpanOther timeout (Observable.result None)

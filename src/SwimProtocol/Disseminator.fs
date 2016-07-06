@@ -1,13 +1,13 @@
 ﻿namespace SwimProtocol
 
-type Disseminator = private { Events : Map<SwimEvent, uint32> }
+type Disseminator = private { Events : Map<SwimEvent, int> }
 
 [<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Disseminator =
     let private add event disseminator =
         match Map.tryFind event disseminator.Events with
         | Some _ -> disseminator
-        | None -> { disseminator with Events = Map.add event 0u disseminator.Events }
+        | None -> { disseminator with Events = Map.add event 0 disseminator.Events }
         
     let private maxPiggyBack numMembers =
         if numMembers = 0 then 0
@@ -27,8 +27,21 @@ module Disseminator =
     // user : string -> Disseminator -> Disseminator
     let user event = User event |> add
 
-    // take : int -> int -> Disseminator
+    // take : int -> Disseminator
     let take numMembers maxSize disseminator =
         let maxPiggyBack = maxPiggyBack numMembers
+        let sizeOf = Message.encodeEvent >> Message.sizeOfValues
 
-        [], disseminator
+        let rec peek acc size = function
+            | (evt, inc)::tail ->
+                let size' = size - (sizeOf evt)
+                if size' >= 0 then peek ((evt, inc + 1) :: acc) size' tail
+                else acc, tail
+            | lst -> acc, lst
+
+        let selectedEvents, restEvents = peek [] maxSize (disseminator.Events |> Map.toList 
+                                                                              |> List.sortWith sortCompare)
+
+        selectedEvents |> List.toArray
+                       |> Array.collect (fst >> Message.encodeEvent),
+        { Events = (selectedEvents |> List.filter (snd >> (>) maxPiggyBack)) @ restEvents |> Map.ofList }
