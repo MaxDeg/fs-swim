@@ -17,8 +17,8 @@ let main argv =
     let localName = System.Net.Dns.GetHostName()
 
     let __ = Swim.start { Swim.defaultConfig with Port = 1337us; PeriodTimeout = TimeSpan.FromSeconds(1.) } []
-    let __ = Swim.start { Swim.defaultConfig with Port = 1338us; PeriodTimeout = TimeSpan.FromSeconds(1.) } [ (localName, 1337us) ]
-    let __ = Swim.start { Swim.defaultConfig with Port = 1339us; PeriodTimeout = TimeSpan.FromSeconds(1.) } [ (localName, 1337us) ]
+    let __ = Swim.start { Swim.defaultConfig with Port = 1338us; PeriodTimeout = TimeSpan.FromSeconds(1.) } []//[ (localName, 1337us) ]
+    //let __ = Swim.start { Swim.defaultConfig with Port = 1339us; PeriodTimeout = TimeSpan.FromSeconds(1.) } [ (localName, 1337us) ]
     
     Console.ReadKey() |> ignore
     0 // return an integer exit code

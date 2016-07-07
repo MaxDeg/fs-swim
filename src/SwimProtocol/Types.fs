@@ -11,7 +11,13 @@ module Agent =
         Agent<'a>.Start(fun box ->
             let rec loop state' = async {
                 let! msg = box.Receive()
-                return! handler box state' msg |> loop
+
+                try
+                    let state' = handler box state' msg
+                    return! loop state'
+                with e ->
+                    printfn "Error %A" e
+                    return! loop state'
             }
 
             loop state)

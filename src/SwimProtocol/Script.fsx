@@ -10,8 +10,9 @@
 #load "Types.fs"
 #load "Message.fs"
 #load "Udp.fs"
-#load "Disseminator.fs"
+#load "Dissemination.fs"
 #load "MemberList.fs"
+#load "FailureDetection.fs"
 #load "Swim.fs"
 
 open SwimProtocol

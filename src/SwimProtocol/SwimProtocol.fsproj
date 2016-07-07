@@ -202,6 +202,7 @@
     <Compile Include="Udp.fs" />
     <Compile Include="Dissemination.fs" />
     <Compile Include="MemberList.fs" />
+    <Compile Include="FailureDetection.fs" />
     <Compile Include="Swim.fs" />
     <None Include="Script.fsx" />
     <Compile Include="Program.fs" />

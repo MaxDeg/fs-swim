@@ -6,103 +6,27 @@ open System.Net.Sockets
 open FSharpx.State
 open FSharpx.Option
 
-module private FailureDetection =
-    module private State =
-        type private PingMessage = Node * IncarnationNumber * SeqNumber
-
-        type State = { RoundRobinNodes : (Node * IncarnationNumber) list
-                       Ping : PingMessage option
-                       PingRequests : Map<Node * SeqNumber, Node> }
-
-    let make () = ()
-
-    let handle = ()
-
-    let ping () = ()
-
+open MemberList
+open Dissemination
+open FailureDetection
 
 type Config =
     { Port : uint16
       PeriodTimeout : TimeSpan
       PingTimeout : TimeSpan
       PingRequestGroupSize : int }
-    
-type private PingMessage = Node * IncarnationNumber * SeqNumber
-
 type Swim =
     private { Config : Config
               Udp : Udp
-              Local : Node
               MemberList : MemberList
-              RoundRobinNodes : (Node * IncarnationNumber) list
               Dissemination : Dissemination
-              Ping : PingMessage option
-              PingRequests : Map<Node * SeqNumber, Node> }
-
-module private FailureDetection =
-    let private sender state =
-        let events = Dissemination.take (MemberList.length state.MemberList) Udp.MaxSize state.Dissemination
-        
-        (fun node msg ->
-            let encodedMsg = Message.encodeMessage msg
-            Udp.send node (Message.encode encodedMsg events) state.Udp),
-        state
-
-    let ping node inc seqNr state =
-        let sender, state = sender state
-
-        printfn "%O ping %O" state.Local node
-        Ping seqNr |> sender node
-        state.Ping, { state with Ping = Some(node, inc, seqNr) }
-
-    let pingRequest nodes seqNr node state =
-        let sender, state = sender state
-
-        nodes |> List.iter (fun n -> PingRequest(seqNr, node) |> sender n)
-        (), state
-
-    let forwardPing source seqNr node state =
-        let sender, state = sender state
-
-        Ping seqNr |> sender source
-        (), { state with PingRequests = Map.add (node, seqNr) source state.PingRequests }
-
-    let ack source seqNr state =
-        let sender, state = sender state
-        
-        printfn "%O ping %O" state.Local source
-        Ack(seqNr, state.Local) |> sender source
-        (), state
-    
-    let handleAck seqNr node state =
-        match state.Ping, Map.tryFind (node, seqNr) state.PingRequests with
-        | Some(pingNode, pingInc, pingSeqNr), None when node = pingNode && seqNr = pingSeqNr ->
-            Some pingInc, { state with Ping = None }
-
-        | None, Some target ->
-            let sender, state = sender state
-
-            Ack(seqNr, node) |> sender target
-            None, { state with PingRequests = Map.remove (node, seqNr) state.PingRequests }
-
-        | _ -> 
-            None, state
-
-    let leave state =
-        let sender, state = sender state
-        let _, inc = MemberList.local state.MemberList
-
-        MemberList.members state.MemberList
-        |> List.iter (fun (n, _) -> SwimMessage.Leave inc |> sender n)
-
-        (), state
+              FailureDetection : FailureDetection }
 
 [<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Swim =
     type private Message =
         | IncomingMessage of Node * SwimMessage * SwimEvent list
         | ProtocolPeriod of SeqNumber
-        | PingTimeout of SeqNumber * Node
         | Leave
         
     let makeNode host port =
@@ -117,34 +41,9 @@ module Swim =
     let private makeLocalNode port =
         let hostName = Dns.GetHostName()
         makeNode hostName port
-    
-    let rec private roundRobinNode state =
-        match state.RoundRobinNodes with
-        | [] -> 
-            roundRobinNode { state with RoundRobinNodes = MemberList.members state.MemberList
-                                                          |> List.shuffle }
-        | head::tail ->
-            head, { state with RoundRobinNodes = tail }
-        
-    let private getRandomNodes node state =
-        let nodes = MemberList.members state.MemberList
-                    |> List.filter (fun (n, _) -> n = node)
-                    |> List.map fst
-                    |> List.shuffle
-
-        nodes |> List.take (Math.Min(List.length nodes, state.Config.PingRequestGroupSize)),
-        state
-    
-    let private schedulePingTimeout (agent : Agent<Message>) seqNr node state =
-        agent.PostAfter (PingTimeout(seqNr, node)) state.Config.PingTimeout
-        (), state
 
     let private schedulePeriodTimeout (agent : Agent<Message>) seqNr state =
         agent.PostAfter (Sequence.incr seqNr |> ProtocolPeriod) state.Config.PeriodTimeout
-        (), state
-
-    let private updateMemberList node status state =
-        MemberList.update node status state.MemberList
         (), state
 
     let private pushEvents events state =
@@ -153,52 +52,34 @@ module Swim =
             | Membership(n, s) -> Dissemination.membership n s state.Dissemination
             | User e -> Dissemination.user e state.Dissemination) events
 
-        (), state
+    let private sender dissemination memberList udp =
+        let events = Dissemination.take (MemberList.length memberList) Udp.MaxSize dissemination
+        
+        (fun node msg ->
+            printfn "SendingMessage %A to %O" msg node
+            let encodedMsg = Message.encodeMessage msg
+            Udp.send node (Message.encode encodedMsg events) udp)
 
-    let private runProtocolPeriod (agent : Agent<Message>) seqNr = state {
-        let! node, inc = roundRobinNode
-        let! unackedPing = FailureDetection.ping node inc seqNr
-    
-        do! schedulePingTimeout agent seqNr node
-        do! schedulePeriodTimeout agent seqNr
-
-        match unackedPing with
-        | Some(unackedNode, inc, _) ->
-            do! updateMemberList unackedNode (Suspect inc)
-        | None -> ()
-    }
-
-    let private handle agent msg = state {
+    let private handle agent msg state =
         match msg with
         | ProtocolPeriod seqNr ->
-            return! runProtocolPeriod agent seqNr
-
-        | PingTimeout(seqNr, node) ->
-            let! nodes = getRandomNodes node
-            return! FailureDetection.pingRequest nodes seqNr node
-
-        | IncomingMessage(source, Ping seqNr, events) ->
-            do! pushEvents events
-            return! FailureDetection.ack source seqNr
-
-        | IncomingMessage(source, PingRequest(seqNr, node), events) ->
-            do! pushEvents events
-            return! FailureDetection.forwardPing source seqNr node
-
-        | IncomingMessage(_, Ack(seqNr, node), events) ->
-            do! pushEvents events
-            let! acked = FailureDetection.handleAck seqNr node
-
-            match acked with
-            | Some inc -> return! updateMemberList node (Alive inc)
-            | None -> ()
-
+            Agent.postAfter agent (Sequence.incr seqNr |> ProtocolPeriod) state.Config.PeriodTimeout
+            FailureDetection.protocolPeriod seqNr state.FailureDetection
+        
         | IncomingMessage(source, SwimMessage.Leave inc, events) ->
-            do! pushEvents events
-            return! updateMemberList source (Dead inc)
+            pushEvents events state
+            MemberList.update source (Dead inc) state.MemberList
 
-        | Leave -> return! FailureDetection.leave
-    }
+        | IncomingMessage(source, swimMsg, events) ->
+            pushEvents events state
+            FailureDetection.handle source swimMsg state.FailureDetection 
+
+        | Leave ->
+            let sender = sender state.Dissemination state.MemberList state.Udp
+            MemberList.members state.MemberList
+            |> List.iter (fun (m, i) -> sender m (SwimMessage.Leave i))
+
+        state
 
     let defaultConfig =
         { Port = 1337us
@@ -212,35 +93,48 @@ module Swim =
         let udp = Udp.connect config.Port
         let members = nodes |> List.map (fun (h, p) -> makeNode h p)
         let dissemination = Dissemination.make()
-        let memberList = MemberList.make local members dissemination
-    
-        let state = { Config = config
-                      Udp = udp
-                      Local = local
-                      MemberList = memberList
-                      RoundRobinNodes = MemberList.members memberList |> List.shuffle
-                      Dissemination = dissemination
-                      Ping = None
-                      PingRequests = Map.empty }
-    
-        let agent = Agent<Message>.Start(fun agent ->
-            let rec loop state = async {
-                let! msg = agent.Receive()
-                return! exec (handle agent msg) state
-                        |> loop
-            }
-        
-            loop state)
-    
-        Udp.received udp
-        |> Event.add (fun (node, msg) ->
-            maybe { let! message, events = Message.decode msg
-                    IncomingMessage(node, message, events) |> agent.Post }
-            |> ignore)
+        let memberList = MemberList.make local members dissemination config.PeriodTimeout
+        let sender = sender dissemination memberList udp
+        let failureDetection = FailureDetection.make local config.PingTimeout config.PingRequestGroupSize memberList sender
 
+        let handler agent state msg =
+            match msg with
+            | ProtocolPeriod seqNr ->
+                Agent.postAfter agent (Sequence.incr seqNr |> ProtocolPeriod) state.Config.PeriodTimeout
+                FailureDetection.protocolPeriod seqNr state.FailureDetection
+        
+            | IncomingMessage(source, SwimMessage.Leave inc, events) ->
+                pushEvents events state
+                MemberList.update source (Dead inc) state.MemberList
+
+            | IncomingMessage(source, swimMsg, events) ->
+                printfn "IncomingMessage %A" swimMsg
+                pushEvents events state
+                FailureDetection.handle source swimMsg state.FailureDetection 
+
+            | Leave ->
+                MemberList.members state.MemberList
+                |> List.iter (fun (m, i) -> sender m (SwimMessage.Leave i))
+
+            state
+
+        let agent = Agent.spawn { Config = config
+                                  Udp = udp
+                                  MemberList = memberList
+                                  Dissemination = dissemination
+                                  FailureDetection = failureDetection }
+                                handler
+    
+        let decodeMessage (node, msg) = ignore <| maybe {
+            let! message, events = Message.decode msg
+            IncomingMessage(node, message, events) |> agent.Post
+        }
+
+        Udp.received udp |> Event.add decodeMessage
         agent.Post(Sequence.make() |> ProtocolPeriod)
 
         state
 
-    let connect node swim =
-        updateMemberList node (IncarnationNumber.make() |> Alive) swim |> snd
+//    let connect node swim =
+//        updateMemberList node (IncarnationNumber.make() |> Alive) swim |> snd
+
