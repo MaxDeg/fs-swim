@@ -6,6 +6,21 @@ open System.Net.Sockets
 open FSharpx.State
 open FSharpx.Option
 
+module private FailureDetection =
+    module private State =
+        type private PingMessage = Node * IncarnationNumber * SeqNumber
+
+        type State = { RoundRobinNodes : (Node * IncarnationNumber) list
+                       Ping : PingMessage option
+                       PingRequests : Map<Node * SeqNumber, Node> }
+
+    let make () = ()
+
+    let handle = ()
+
+    let ping () = ()
+
+
 type Config =
     { Port : uint16
       PeriodTimeout : TimeSpan
@@ -20,18 +35,18 @@ type Swim =
               Local : Node
               MemberList : MemberList
               RoundRobinNodes : (Node * IncarnationNumber) list
-              Disseminator : Disseminator
+              Dissemination : Dissemination
               Ping : PingMessage option
               PingRequests : Map<Node * SeqNumber, Node> }
 
 module private FailureDetection =
     let private sender state =
-        let events, disseminator = Disseminator.take (MemberList.length state.MemberList) Udp.MaxSize state.Disseminator
+        let events = Dissemination.take (MemberList.length state.MemberList) Udp.MaxSize state.Dissemination
         
         (fun node msg ->
             let encodedMsg = Message.encodeMessage msg
             Udp.send node (Message.encode encodedMsg events) state.Udp),
-        { state with Disseminator = disseminator }
+        state
 
     let ping node inc seqNr state =
         let sender, state = sender state
@@ -129,22 +144,16 @@ module Swim =
         (), state
 
     let private updateMemberList node status state =
-        let nodeStatus, memberList = MemberList.update node status state.MemberList
-        match nodeStatus with
-        | Some(n, s) ->
-            (), { state with MemberList = memberList
-                             Disseminator = Disseminator.membership n s state.Disseminator }
-        | None ->
-            (), { state with MemberList = memberList }
+        MemberList.update node status state.MemberList
+        (), state
 
     let private pushEvents events state =
-        let disseminator =
-            List.fold (fun disseminator evt ->
-                match evt with
-                | Membership(n, s) -> Disseminator.membership n s disseminator
-                | User e -> Disseminator.user e disseminator) state.Disseminator events
+        List.iter (fun evt ->
+            match evt with
+            | Membership(n, s) -> Dissemination.membership n s state.Dissemination
+            | User e -> Dissemination.user e state.Dissemination) events
 
-        (), { state with Disseminator = disseminator }
+        (), state
 
     let private runProtocolPeriod (agent : Agent<Message>) seqNr = state {
         let! node, inc = roundRobinNode
@@ -202,15 +211,15 @@ module Swim =
         let local = makeLocalNode config.Port
         let udp = Udp.connect config.Port
         let members = nodes |> List.map (fun (h, p) -> makeNode h p)
-        let memberList = MemberList.make local members
-        let disseminator = Disseminator.make()
+        let dissemination = Dissemination.make()
+        let memberList = MemberList.make local members dissemination
     
         let state = { Config = config
                       Udp = udp
                       Local = local
                       MemberList = memberList
                       RoundRobinNodes = MemberList.members memberList |> List.shuffle
-                      Disseminator = disseminator
+                      Dissemination = dissemination
                       Ping = None
                       PingRequests = Map.empty }
     

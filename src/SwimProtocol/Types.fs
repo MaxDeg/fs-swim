@@ -7,26 +7,26 @@ type Agent<'a> = MailboxProcessor<'a>
 
 [<RequireQualifiedAccess>]
 module Agent =
-    let spawn (state : 's) (handler : 'a -> 's -> 's) =
+    let spawn (state : 's) (handler : Agent<'a> -> 's -> 'a -> 's) =
         Agent<'a>.Start(fun box ->
             let rec loop state' = async {
                 let! msg = box.Receive()
-                return! (handler msg state') |> loop
+                return! handler box state' msg |> loop
             }
 
             loop state)
 
-    let post msg (agent : Agent<'a>) =
+    let post (agent : Agent<'a>) msg =
         agent.Post msg
         
-    let postAfter msg (timeout : TimeSpan) (agent : Agent<'a>) =
+    let postAfter (agent : Agent<'a>) msg (timeout : TimeSpan) =
         Async.Start(async { 
             do! Async.Sleep(timeout.TotalMilliseconds |> int)
             agent.Post msg
         })
         
-    let postAndReply msg (agent : Agent<'a>) =
-        agent.PostAndReply(fun rChan -> msg)
+    let postAndReply (agent : Agent<'a>) msg =
+        agent.PostAndReply msg
 
 type SeqNumber =
     private | SeqNumber of uint64

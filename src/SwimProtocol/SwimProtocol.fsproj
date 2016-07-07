@@ -200,7 +200,7 @@
     <Compile Include="Types.fs" />
     <Compile Include="Message.fs" />
     <Compile Include="Udp.fs" />
-    <Compile Include="Disseminator.fs" />
+    <Compile Include="Dissemination.fs" />
     <Compile Include="MemberList.fs" />
     <Compile Include="Swim.fs" />
     <None Include="Script.fsx" />
