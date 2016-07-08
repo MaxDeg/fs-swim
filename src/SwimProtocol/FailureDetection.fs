@@ -26,25 +26,27 @@ module private State =
 
     let rec private roundRobinNode state =
         match state.RoundRobinNodes with
+        | head::tail ->
+            Some head, { state with RoundRobinNodes = tail }
+        | [] when MemberList.length state.MemberList = 0 ->
+            None, state
         | [] -> 
             roundRobinNode { state with RoundRobinNodes = MemberList.members state.MemberList
-                                                            |> List.shuffle }
-        | head::tail ->
-            head, { state with RoundRobinNodes = tail }
-
+                                                          |> List.shuffle }
+    
     let forwardPing source seqNr node state =
         Ping seqNr |> state.Sender source
         { state with PingRequests = Map.add (node, seqNr) source state.PingRequests }
 
-    let ack source seqNr state =        
-        printfn "%O ping %O" state.Local source
+    let ack source seqNr state =
+        MemberList.update source (IncarnationNumber.make() |> Alive) state.MemberList
         Ack(seqNr, state.Local) |> state.Sender source
-        Ack(seqNr, state.Local) |> printfn "Acking %A"
         state
         
     let handleAck seqNr node state =
         match state.Ping, Map.tryFind (node, seqNr) state.PingRequests with
         | Some(pingNode, pingInc, pingSeqNr), None when node = pingNode && seqNr = pingSeqNr ->
+            printfn "[Protocol Period %O] %O successfully contact %O" pingSeqNr state.Local pingNode
             MemberList.update node (Alive pingInc) state.MemberList
             { state with Ping = None }
 
@@ -55,9 +57,8 @@ module private State =
         | _ -> 
             state
             
-    let runProtocolPeriod (agent : Agent<Request>) seqNr = 
+    let runProtocolPeriod (agent : Agent<Request>) seqNr =
         let ping node inc state =
-            printfn "%O ping %O" state.Local node
             Ping seqNr |> state.Sender node
             state.Ping, { state with Ping = Some(node, inc, seqNr) }
                 
@@ -69,15 +70,23 @@ module private State =
             MemberList.update node (Suspect inc) state.MemberList
             (), state
 
+        let local state =
+            state.Local, state
+
         state {
-            let! node, inc = roundRobinNode
-            let! unackedPing = ping node inc
-
-            do! schedulePingTimeout node
-
-            match unackedPing with
-            | Some(unackedNode, inc, _) -> do! suspect unackedNode inc
+            let! selectedNode = roundRobinNode
+            match selectedNode with
             | None -> ()
+            | Some(node, inc) ->
+                let! unackedPing = ping node inc
+                do! schedulePingTimeout node
+
+                match unackedPing with
+                | Some(unackedNode, inc, periodNr) ->
+                    let! local = local
+                    printfn "[Protocol Period %O] %O failed to contact %O" periodNr local unackedNode
+                    do! suspect unackedNode inc
+                | None -> ()
         } |> exec
         
     let pingRequest nodes seqNr node state =
@@ -87,12 +96,11 @@ module private State =
                     |> List.shuffle
 
         nodes |> List.take (Math.Min(List.length nodes, state.PingRequestGroupSize))
-                |> List.iter (fun n -> PingRequest(seqNr, node) |> state.Sender n)
+              |> List.iter (fun n -> PingRequest(seqNr, node) |> state.Sender n)
         state
 
 let make local timeout pingRequestGrouSize memberList sender =
-    let handler agent state msg = //function
-        match msg with
+    let handler agent state = function
         | ProtocolPeriod seqNr ->
             (runProtocolPeriod agent seqNr) state
 

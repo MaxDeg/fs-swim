@@ -56,7 +56,6 @@ module Swim =
         let events = Dissemination.take (MemberList.length memberList) Udp.MaxSize dissemination
         
         (fun node msg ->
-            printfn "SendingMessage %A to %O" msg node
             let encodedMsg = Message.encodeMessage msg
             Udp.send node (Message.encode encodedMsg events) udp)
 
@@ -108,9 +107,8 @@ module Swim =
                 MemberList.update source (Dead inc) state.MemberList
 
             | IncomingMessage(source, swimMsg, events) ->
-                printfn "IncomingMessage %A" swimMsg
                 pushEvents events state
-                FailureDetection.handle source swimMsg state.FailureDetection 
+                FailureDetection.handle source swimMsg state.FailureDetection
 
             | Leave ->
                 MemberList.members state.MemberList

@@ -21,6 +21,7 @@ module private State =
         let eventOrder = function Membership _ -> 0 | User _ -> 1
         compare (eventOrder e1) (eventOrder e2) + (cnt1 - cnt2)
         
+    // TODO add size limit !!!
     let add event disseminator =
         match Map.tryFind event disseminator.Events with
         | Some _ -> disseminator

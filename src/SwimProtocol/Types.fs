@@ -8,19 +8,17 @@ type Agent<'a> = MailboxProcessor<'a>
 [<RequireQualifiedAccess>]
 module Agent =
     let spawn (state : 's) (handler : Agent<'a> -> 's -> 'a -> 's) =
-        Agent<'a>.Start(fun box ->
-            let rec loop state' = async {
-                let! msg = box.Receive()
+        let rec handleLoop state' (agent : Agent<'a>) =  async {
+            try
+                let! msg = agent.Receive()
+                let state' = handler agent state' msg
+                return! handleLoop state' agent
+            with e ->
+                printfn "Error!! %A" e
+                return! handleLoop state' agent
+        }
 
-                try
-                    let state' = handler box state' msg
-                    return! loop state'
-                with e ->
-                    printfn "Error %A" e
-                    return! loop state'
-            }
-
-            loop state)
+        handleLoop state |> Agent<'a>.Start
 
     let post (agent : Agent<'a>) msg =
         agent.Post msg
@@ -36,6 +34,9 @@ module Agent =
 
 type SeqNumber =
     private | SeqNumber of uint64
+    with
+        override x.ToString() = 
+            match x with SeqNumber i -> i.ToString()
 
 [<RequireQualifiedAccess>]
 module Sequence =
@@ -49,6 +50,9 @@ module Sequence =
 
 type IncarnationNumber =
     private | IncarnationNumber of uint64
+    with
+        override x.ToString() = 
+            match x with IncarnationNumber i -> i.ToString()
 
 [<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module IncarnationNumber =

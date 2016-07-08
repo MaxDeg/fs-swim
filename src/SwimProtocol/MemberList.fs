@@ -26,7 +26,8 @@ module private State =
         | Member of NodeStatus
         | NotFound
 
-    let private suspectTimeout memb incarnation agent state = 
+    let private suspectTimeout memb incarnation agent state =
+        // Find a way to cancel the timeout
         (float state.Members.Count + 1. |> log |> round) * 5.0 * state.PeriodTimeout.TotalSeconds
         |> TimeSpan.FromSeconds
         |> Agent.postAfter agent (Status(memb, Dead incarnation))
