@@ -69,32 +69,33 @@ module Swim =
         let sender = sender dissemination memberList udp
         let failureDetection = FailureDetection.make local config.PingTimeout config.PingRequestGroupSize memberList sender
 
-        let handler agent state msg =
-            match msg with
+        let handler agent state = function
             | ProtocolPeriod seqNr ->
                 Agent.postAfter agent (Sequence.incr seqNr |> ProtocolPeriod) state.Config.PeriodTimeout
                 FailureDetection.protocolPeriod seqNr state.FailureDetection
+                AgentState.Continue state
         
             | IncomingMessage(source, SwimMessage.Leave inc, events) ->
                 pushEvents events state
                 MemberList.update source (Dead inc) state.MemberList
+                AgentState.Continue state
 
             | IncomingMessage(source, swimMsg, events) ->
                 pushEvents events state
                 FailureDetection.handle source swimMsg state.FailureDetection
+                AgentState.Continue state
 
             | Leave ->
                 MemberList.members state.MemberList
                 |> List.iter (fun (m, i) -> sender m (SwimMessage.Leave i))
+                AgentState.Stop
 
-            state
-
-        let agent = Agent.spawn { Config = config
-                                  Udp = udp
-                                  MemberList = memberList
-                                  Dissemination = dissemination
-                                  FailureDetection = failureDetection }
-                                handler
+        let agent = Agent.spawnStoppable { Config = config
+                                           Udp = udp
+                                           MemberList = memberList
+                                           Dissemination = dissemination
+                                           FailureDetection = failureDetection }
+                                         handler
     
         let decodeMessage (node, msg) = ignore <| maybe {
             let! message, events = Message.decode msg
@@ -102,10 +103,7 @@ module Swim =
         }
 
         Udp.received udp |> Event.add decodeMessage
-        agent.Post(Sequence.make() |> ProtocolPeriod)
+        Sequence.make() |> ProtocolPeriod |> Agent.post agent
 
-        state
-
-//    let connect node swim =
-//        updateMemberList node (IncarnationNumber.make() |> Alive) swim |> snd
-
+        { new IDisposable with
+            member __.Dispose() = Leave |> Agent.post agent }

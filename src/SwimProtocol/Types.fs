@@ -5,14 +5,32 @@ open System.Net
 
 type Agent<'a> = MailboxProcessor<'a>
 
+type AgentState<'s> =
+| Continue of 's
+| Stop
+
 [<RequireQualifiedAccess>]
 module Agent =
-    let spawn (state : 's) (handler : Agent<'a> -> 's -> 'a -> 's) =
+    let spawn (state : 's) handler =
         let rec handleLoop state' (agent : Agent<'a>) =  async {
             try
                 let! msg = agent.Receive()
                 let state' = handler agent state' msg
                 return! handleLoop state' agent
+            with e ->
+                printfn "Error!! %A" e
+                return! handleLoop state' agent
+        }
+
+        handleLoop state |> Agent<'a>.Start
+
+    let spawnStoppable (state : 's) handler =
+        let rec handleLoop state' (agent : Agent<'a>) =  async {
+            try
+                let! msg = agent.Receive()
+                match handler agent state' msg with
+                | Continue state' -> return! handleLoop state' agent
+                | Stop -> ()
             with e ->
                 printfn "Error!! %A" e
                 return! handleLoop state' agent
