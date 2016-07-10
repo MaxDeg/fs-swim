@@ -89,15 +89,20 @@ module private State =
                 | None -> ()
         } |> exec
         
-    let pingRequest nodes seqNr node state =
-        let nodes = MemberList.members state.MemberList
-                    |> List.filter (fun (n, _) -> n <> node)
-                    |> List.map fst
-                    |> List.shuffle
+    let pingRequest seqNr node state =
+        match state.Ping with
+        | Some(pingNode, _, pingSeqNr) when node = pingNode && seqNr = pingSeqNr ->
+            let nodes = MemberList.members state.MemberList
+                        |> List.filter (fun (n, _) -> n <> node)
+                        |> List.map fst
+                        |> List.shuffle
 
-        nodes |> List.take (Math.Min(List.length nodes, state.PingRequestGroupSize))
-              |> List.iter (fun n -> PingRequest(seqNr, node) |> state.Sender n)
-        state
+            nodes |> List.take (Math.Min(List.length nodes, state.PingRequestGroupSize))
+                  |> List.iter (fun n -> printfn "[%O] ping request to %O for %O" state.Local n node
+                                         PingRequest(seqNr, node) |> state.Sender n)
+            state
+
+        | _ -> state
 
 let make local timeout pingRequestGrouSize memberList sender =
     let handler agent state = function
@@ -105,7 +110,7 @@ let make local timeout pingRequestGrouSize memberList sender =
             (runProtocolPeriod agent seqNr) state
 
         | PingTimeout(seqNr, node) -> 
-            pingRequest [] seqNr node state
+            pingRequest seqNr node state
 
         | Message(source, Ping seqNr) -> 
             ack source seqNr state

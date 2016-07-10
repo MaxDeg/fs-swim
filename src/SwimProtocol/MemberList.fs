@@ -49,7 +49,7 @@ module private State =
         let { Members = members } = state
         let members' =
             match status with
-            | Dead i -> Map.remove memb members
+            | Dead _ -> Map.remove memb members
             | _ -> Map.add memb status members
 
         printfn "%O MemberList Status: %O is %A" state.Local memb status

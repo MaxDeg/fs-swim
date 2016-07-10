@@ -39,10 +39,10 @@ module private State =
             | lst -> acc, lst
 
         let selectedEvents, restEvents = peek [] maxSize (disseminator.Events |> Map.toList 
-                                                                                |> List.sortWith sortCompare)
-
+                                                                              |> List.sortWith sortCompare)
+        
         selectedEvents |> List.toArray
-                        |> Array.collect (fst >> Message.encodeEvent),
+                       |> Array.collect (fst >> Message.encodeEvent),
         { Events = (selectedEvents |> List.filter (snd >> (>) maxPiggyBack)) @ restEvents |> Map.ofList }
 
 (******* PUBLIC API *******)

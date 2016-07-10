@@ -42,43 +42,16 @@ module Swim =
         let hostName = Dns.GetHostName()
         makeNode hostName port
 
-    let private schedulePeriodTimeout (agent : Agent<Message>) seqNr state =
-        agent.PostAfter (Sequence.incr seqNr |> ProtocolPeriod) state.Config.PeriodTimeout
-        (), state
-
     let private pushEvents events state =
         List.iter (fun evt ->
             match evt with
-            | Membership(n, s) -> Dissemination.membership n s state.Dissemination
+            | Membership(n, s) -> MemberList.update n s state.MemberList
             | User e -> Dissemination.user e state.Dissemination) events
 
-    let private sender dissemination memberList udp =
+    let private sender dissemination memberList udp node msg =
         let events = Dissemination.take (MemberList.length memberList) Udp.MaxSize dissemination
-        
-        (fun node msg ->
-            let encodedMsg = Message.encodeMessage msg
-            Udp.send node (Message.encode encodedMsg events) udp)
-
-    let private handle agent msg state =
-        match msg with
-        | ProtocolPeriod seqNr ->
-            Agent.postAfter agent (Sequence.incr seqNr |> ProtocolPeriod) state.Config.PeriodTimeout
-            FailureDetection.protocolPeriod seqNr state.FailureDetection
-        
-        | IncomingMessage(source, SwimMessage.Leave inc, events) ->
-            pushEvents events state
-            MemberList.update source (Dead inc) state.MemberList
-
-        | IncomingMessage(source, swimMsg, events) ->
-            pushEvents events state
-            FailureDetection.handle source swimMsg state.FailureDetection 
-
-        | Leave ->
-            let sender = sender state.Dissemination state.MemberList state.Udp
-            MemberList.members state.MemberList
-            |> List.iter (fun (m, i) -> sender m (SwimMessage.Leave i))
-
-        state
+        let encodedMsg = Message.encodeMessage msg
+        Udp.send node (Message.encode encodedMsg events) udp
 
     let defaultConfig =
         { Port = 1337us
