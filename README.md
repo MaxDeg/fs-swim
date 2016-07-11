@@ -17,7 +17,7 @@ SwimProtocol.exe [port] [node addresses]
 
 ### Example
 
-Runing a cluster of 5 nodes on the same machine.
+Running a cluster of 5 nodes on the same machine.
 
 ```fsharp
 open System
