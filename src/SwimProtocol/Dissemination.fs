@@ -5,6 +5,7 @@ open MsgPack
 type private Request =
     | Event of SwimEvent
     | Take of int * int * AsyncReplyChannel<Values.Value[]>
+    | Show of AsyncReplyChannel<SwimEvent list>
 
 type Dissemination = private Dissemination of Agent<Request>
 
@@ -60,12 +61,16 @@ let make () =
         let events, state' = State.take numMembers maxSize state
         rChan.Reply(events)
         state'
+
+    | Show rChan ->
+        state.Events |> Map.toList |> List.map fst |> rChan.Reply
+        state
         
     Agent.spawn { Events = Map.empty } handler
     |> Dissemination
 
 // membership : Node -> NodeStatus -> Dissemination -> unit
-let membership node status (Dissemination agent) = 
+let membership node status (Dissemination agent) =
     Membership(node, status) |> Event |> Agent.post agent
 
 // user : string -> Dissemination -> unit
@@ -75,3 +80,6 @@ let user event (Dissemination agent) =
 // take : int -> int -> Dissemination -> MsgPack.Values.Value[]
 let take numMembers maxSize (Dissemination agent) =
     (fun rc -> Take(numMembers, maxSize, rc)) |> Agent.postAndReply agent
+
+let show (Dissemination agent) =
+    Show |> Agent.postAndReply agent

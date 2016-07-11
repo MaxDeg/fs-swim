@@ -1,38 +1,23 @@
-#r "../../packages/FSharpx.Collections/lib/net40/FSharpx.Collections.dll"
-#r "../../packages/FSharp.Control.AsyncSeq/lib/net45/FSharp.Control.AsyncSeq.dll"
-#r "../../packages/FSharpx.Async/lib/net40/FSharpx.Async.dll"
-#r "../../packages/FSharpx.Extras/lib/40/FSharpx.Extras.dll"
-#load "../../paket-files/MaxDeg/fs-msgpack/src/MsgPack/DataType.fs"
-#load "../../paket-files/MaxDeg/fs-msgpack/src/MsgPack/Value.fs"
-#load "../../paket-files/MaxDeg/fs-msgpack/src/MsgPack/Packer.fs"
-#load "../../paket-files/MaxDeg/fs-msgpack/src/MsgPack/Unpacker.fs"
-#load "Utils.fs"
-#load "Types.fs"
-#load "Message.fs"
-#load "Udp.fs"
-#load "Dissemination.fs"
-#load "MemberList.fs"
-#load "FailureDetection.fs"
-#load "Swim.fs"
-
-open SwimProtocol
 open System
+open System.Diagnostics
 
 let localName = System.Net.Dns.GetHostName()
 
-let node1 =
-    Swim.start { Swim.defaultConfig with Port = 1337us
-                                         PeriodTimeout = TimeSpan.FromSeconds(1.) } []
+let exec args =
+    let psi = new ProcessStartInfo(__SOURCE_DIRECTORY__ + @"\bin\Release\SwimProtocol.exe")
+    psi.Arguments <- args
+    psi.UseShellExecute <- true
+    Process.Start(psi) |> ignore
 
-let node2 =
-    Swim.start { Swim.defaultConfig with Port = 1338us
-                                         PeriodTimeout = TimeSpan.FromSeconds(1.) } [ (localName, 1337us) ]
+let remoteNode = sprintf "%s:%i"
 
-let node3 =
-    Swim.start { Swim.defaultConfig with Port = 1339us
-                                         PeriodTimeout = TimeSpan.FromSeconds(1.) } [ (localName, 1337us) ]
+let execOtherNode port =
+    remoteNode "127.0.0.1" 1337
+    |> sprintf "%s %s" port
+    |> exec
 
-// -------------------------------------------------------------
-
-
-
+exec "1337"
+execOtherNode "1338"
+execOtherNode "1339"
+execOtherNode "1340"
+execOtherNode "1341"

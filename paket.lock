@@ -10,6 +10,7 @@ NUGET
     FSharpx.Extras (1.10.3)
       FSharpx.Async (>= 1.12)
       FSharpx.Collections (>= 1.10.1)
+    NLog (4.3.5)
 GITHUB
   remote: MaxDeg/fs-msgpack
     src/MsgPack/DataType.fs (9255ac3f96be294153192d0caabdfa340fa774fa)

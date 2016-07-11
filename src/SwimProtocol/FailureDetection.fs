@@ -35,10 +35,12 @@ module private State =
                                                           |> List.shuffle }
     
     let forwardPing source seqNr node state =
-        Ping seqNr |> state.Sender source
+        sprintf "Ping request from %O (%A) - forwarding to %O" source seqNr node |> trace
+        Ping seqNr |> state.Sender node
         { state with PingRequests = Map.add (node, seqNr) source state.PingRequests }
 
     let ack source seqNr state =
+        sprintf "Ping from %O (%A) - acking" source seqNr |> trace
         MemberList.update source (IncarnationNumber.make() |> Alive) state.MemberList
         Ack(seqNr, state.Local) |> state.Sender source
         state
@@ -46,12 +48,13 @@ module private State =
     let handleAck seqNr node state =
         match state.Ping, Map.tryFind (node, seqNr) state.PingRequests with
         | Some(pingNode, pingInc, pingSeqNr), None when node = pingNode && seqNr = pingSeqNr ->
-            printfn "[Protocol Period %O] %O successfully contact %O" pingSeqNr state.Local pingNode
+            sprintf "Ack received from %O (%A)" node seqNr |> trace
             MemberList.update node (Alive pingInc) state.MemberList
             { state with Ping = None }
 
         | None, Some target ->
             Ack(seqNr, node) |> state.Sender target
+            sprintf "PingRequest Acked forward to %O" target |> trace
             { state with PingRequests = Map.remove (node, seqNr) state.PingRequests }
 
         | _ -> 
@@ -70,36 +73,32 @@ module private State =
             MemberList.update node (Suspect inc) state.MemberList
             (), state
 
-        let local state =
-            state.Local, state
-
         state {
             let! selectedNode = roundRobinNode
             match selectedNode with
             | None -> ()
             | Some(node, inc) ->
+                sprintf "Run protocol %A ping %O" seqNr node |> trace
                 let! unackedPing = ping node inc
                 do! schedulePingTimeout node
 
                 match unackedPing with
-                | Some(unackedNode, inc, periodNr) ->
-                    let! local = local
-                    printfn "[Protocol Period %O] %O failed to contact %O" periodNr local unackedNode
+                | Some(unackedNode, inc, _) ->
+                    sprintf "Suspect unacked ping %O" unackedNode |> trace
                     do! suspect unackedNode inc
                 | None -> ()
         } |> exec
         
     let pingRequest seqNr node state =
         match state.Ping with
-        | Some(pingNode, _, pingSeqNr) when node = pingNode && seqNr = pingSeqNr ->
+        | Some(_, _, pingSeqNr) when seqNr = pingSeqNr ->
             let nodes = MemberList.members state.MemberList
                         |> List.filter (fun (n, _) -> n <> node)
                         |> List.map fst
                         |> List.shuffle
 
             nodes |> List.take (Math.Min(List.length nodes, state.PingRequestGroupSize))
-                  |> List.iter (fun n -> printfn "[%O] ping request to %O for %O" state.Local n node
-                                         PingRequest(seqNr, node) |> state.Sender n)
+                  |> List.iter (fun n -> PingRequest(seqNr, node) |> state.Sender n)
             state
 
         | _ -> state

@@ -20,18 +20,24 @@ module Udp =
 
         Async.Start(async {
             while true do
-                let! udpMsg = udp.ReceiveAsync() |> Async.AwaitTask
-                let node = { IPAddress = udpMsg.RemoteEndPoint.Address.GetAddressBytes() |> toInt64
-                             Port = uint16 udpMsg.RemoteEndPoint.Port }
-                receivedEvent.Trigger(node, udpMsg.Buffer)
+                try
+                    let! udpMsg = udp.ReceiveAsync() |> Async.AwaitTask
+                    let node = { IPAddress = udpMsg.RemoteEndPoint.Address.GetAddressBytes() |> toInt64
+                                 Port = uint16 udpMsg.RemoteEndPoint.Port }
+                    receivedEvent.Trigger(node, udpMsg.Buffer)
+                with e ->
+                    // do nothing else lets the FailureDetector do its work
+                    sprintf "%A" e |> warn
         })
         
         { Client = udp
           ReceivedEvent = receivedEvent }
     
     let send node bytes { Client = udp } =
-        udp.Send(bytes, bytes.Length, new IPEndPoint(node.IPAddress, int node.Port))
-        |> ignore
+        udp.SendAsync(bytes, bytes.Length, new IPEndPoint(node.IPAddress, int node.Port))
+        |> Async.AwaitTask
+        |> Async.Ignore
+        |> Async.Start
 
     let received { ReceivedEvent = receivedEvent } = receivedEvent.Publish
 
@@ -40,7 +46,7 @@ module Udp =
         let isUdpPortUsed =
             let usedUdpPort =
                 IPGlobalProperties.GetIPGlobalProperties().GetActiveUdpListeners() 
-                |> Array.map (fun e -> e.Port)
+                |> Array.map (fun e -> uint16 e.Port)
 
             fun p -> Array.exists (fun p' -> p' = p) usedUdpPort
         
@@ -48,4 +54,4 @@ module Udp =
             if isUdpPortUsed port then nextFreePort port
             else port 
 
-        nextFreePort 1337
+        nextFreePort 1337us

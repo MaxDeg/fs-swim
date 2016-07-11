@@ -15,23 +15,31 @@ type Config =
       PeriodTimeout : TimeSpan
       PingTimeout : TimeSpan
       PingRequestGroupSize : int }
-type Swim =
-    private { Config : Config
-              Udp : Udp
-              MemberList : MemberList
-              Dissemination : Dissemination
-              FailureDetection : FailureDetection }
 
 [<RequireQualifiedAccess; CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Swim =
+    type private State =
+         { Config : Config
+           Udp : Udp
+           MemberList : MemberList
+           Dissemination : Dissemination
+           FailureDetection : FailureDetection }
+
     type private Message =
         | IncomingMessage of Node * SwimMessage * SwimEvent list
         | ProtocolPeriod of SeqNumber
+        | Members of AsyncReplyChannel<Member list>
+        | Events of AsyncReplyChannel<SwimEvent list>
         | Leave
-        
-    let makeNode host port =
+
+    type Swim = private Swim of Agent<Message>
+    
+    let makeNode (host : string) port =
+        // Issue with ip 127.0.0.1 with UdpClient
+        // localhost only return 127.0.0.1 host entry
+        // 127.0.0.1 return the correct ip
         let ipAddress =
-            Dns.GetHostAddresses(host)
+            Dns.GetHostEntry(if host = "localhost" then "127.0.0.1" else host).AddressList
             |> Array.filter (fun a -> a.AddressFamily = AddressFamily.InterNetwork)
             |> Array.head
         
@@ -73,37 +81,57 @@ module Swim =
             | ProtocolPeriod seqNr ->
                 Agent.postAfter agent (Sequence.incr seqNr |> ProtocolPeriod) state.Config.PeriodTimeout
                 FailureDetection.protocolPeriod seqNr state.FailureDetection
-                AgentState.Continue state
+                state
         
             | IncomingMessage(source, SwimMessage.Leave inc, events) ->
-                pushEvents events state
                 MemberList.update source (Dead inc) state.MemberList
-                AgentState.Continue state
+                pushEvents events state
+                state
 
             | IncomingMessage(source, swimMsg, events) ->
-                pushEvents events state
                 FailureDetection.handle source swimMsg state.FailureDetection
-                AgentState.Continue state
+                pushEvents events state
+                state
+
+            | Members replyChan ->
+                MemberList.members state.MemberList |> replyChan.Reply
+                state
+
+            | Events replyChan ->
+                Dissemination.show state.Dissemination |> replyChan.Reply
+                state
 
             | Leave ->
                 MemberList.members state.MemberList
                 |> List.iter (fun (m, i) -> sender m (SwimMessage.Leave i))
-                AgentState.Stop
+                
+                Agent.stop agent
+                state
 
-        let agent = Agent.spawnStoppable { Config = config
-                                           Udp = udp
-                                           MemberList = memberList
-                                           Dissemination = dissemination
-                                           FailureDetection = failureDetection }
-                                         handler
+        let agent = Agent.spawn { Config = config
+                                  Udp = udp
+                                  MemberList = memberList
+                                  Dissemination = dissemination
+                                  FailureDetection = failureDetection }
+                                handler
     
         let decodeMessage (node, msg) = ignore <| maybe {
             let! message, events = Message.decode msg
-            IncomingMessage(node, message, events) |> agent.Post
+            IncomingMessage(node, message, events) |> Agent.post agent
         }
 
         Udp.received udp |> Event.add decodeMessage
         Sequence.make() |> ProtocolPeriod |> Agent.post agent
 
-        { new IDisposable with
-            member __.Dispose() = Leave |> Agent.post agent }
+        sprintf "Swim protocol running on port %i" config.Port |> info
+        Swim agent
+
+    let members (Swim agent) =
+        Members |> Agent.postAndReply agent
+
+    let events (Swim agent) =
+        Events |> Agent.postAndReply agent
+    
+    let stop (Swim agent) =
+        Leave |> Agent.post agent
+

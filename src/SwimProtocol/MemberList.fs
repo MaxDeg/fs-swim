@@ -2,9 +2,11 @@
 
 open Dissemination
 
+type Member = Node * IncarnationNumber
+
 type private Request =
     | Status of Node * NodeStatus
-    | Members of AsyncReplyChannel<(Node * IncarnationNumber) list>
+    | Members of AsyncReplyChannel<Member list>
     | Length of AsyncReplyChannel<int>
     | GetLocal of AsyncReplyChannel<LocalNode>
     | Remove of Node
@@ -28,7 +30,7 @@ module private State =
 
     let private suspectTimeout memb incarnation agent state =
         // Find a way to cancel the timeout
-        (float state.Members.Count + 1. |> log |> round) * 5.0 * state.PeriodTimeout.TotalSeconds
+        (float state.Members.Count + 1. |> log |> round) * state.PeriodTimeout.TotalSeconds
         |> TimeSpan.FromSeconds
         |> Agent.postAfter agent (Status(memb, Dead incarnation))
     
@@ -52,7 +54,6 @@ module private State =
             | Dead _ -> Map.remove memb members
             | _ -> Map.add memb status members
 
-        printfn "%O MemberList Status: %O is %A" state.Local memb status
         // disseminate information
         Dissemination.membership memb status state.Dissemination
 
@@ -60,6 +61,7 @@ module private State =
 
     // stillAlive : MemberList -> IncarnationNumber -> MemberList
     let stillAlive incarnation state =
+        sprintf "[%O] I'm still alive" state.Local |> trace
         let { Local = local, currentIncarnation } = state
 
         let incarnation' =  if currentIncarnation > incarnation then currentIncarnation
@@ -86,6 +88,7 @@ module private State =
 
     // suspect : MemberList -> Node -> IncarnationNumber -> MemberList
     let suspect memb incarnation agent state =
+        sprintf "[%O] Node %O is suspect" state.Local memb |> trace
         match tryFind memb state with
         | Local i -> stillAlive i state
 
@@ -102,6 +105,7 @@ module private State =
 
     // dead : MemberList -> Node -> IncarnationNumber -> MemberList
     let dead memb incarnation state =
+        sprintf "[%O] Node %O is dead" state.Local memb |> trace
         match tryFind memb state with
         | Local i -> stillAlive i state
 

@@ -1,4 +1,5 @@
 FSharpx.Extras
+NLog
 File:DataType.fs
 File:Value.fs
 File:Packer.fs

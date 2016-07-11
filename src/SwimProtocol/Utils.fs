@@ -3,6 +3,15 @@
 open System
 
 [<AutoOpen>]
+module Logging = 
+    let logger = NLog.LogManager.GetCurrentClassLogger()
+
+    let info (msg : string) = logger.Info msg
+    let trace (msg : string) = logger.Trace msg
+    let warn (msg : string) = logger.Warn msg
+
+
+[<AutoOpen>]
 module Utils = 
     let choice list = List.tryPick id list
     

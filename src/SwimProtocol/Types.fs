@@ -1,54 +1,46 @@
 ﻿namespace SwimProtocol
 
 open System
-open System.Net
+open System.Threading
 
-type Agent<'a> = MailboxProcessor<'a>
-
-type AgentState<'s> =
-| Continue of 's
-| Stop
+type Agent<'a> = 
+    private { Mailbox : MailboxProcessor<'a>
+              CancellationSource : CancellationTokenSource }
 
 [<RequireQualifiedAccess>]
 module Agent =
     let spawn (state : 's) handler =
-        let rec handleLoop state' (agent : Agent<'a>) =  async {
+        let cancellationTokenSource = new CancellationTokenSource()
+
+        let rec handleLoop state' agent = async {
             try
-                let! msg = agent.Receive()
+                let! msg = agent.Mailbox.Receive()
                 let state' = handler agent state' msg
                 return! handleLoop state' agent
             with e ->
                 printfn "Error!! %A" e
                 return! handleLoop state' agent
         }
-
-        handleLoop state |> Agent<'a>.Start
-
-    let spawnStoppable (state : 's) handler =
-        let rec handleLoop state' (agent : Agent<'a>) =  async {
-            try
-                let! msg = agent.Receive()
-                match handler agent state' msg with
-                | Continue state' -> return! handleLoop state' agent
-                | Stop -> ()
-            with e ->
-                printfn "Error!! %A" e
-                return! handleLoop state' agent
-        }
-
-        handleLoop state |> Agent<'a>.Start
-
-    let post (agent : Agent<'a>) msg =
-        agent.Post msg
         
-    let postAfter (agent : Agent<'a>) msg (timeout : TimeSpan) =
+        let rec agent =
+            { Mailbox = MailboxProcessor<'a>.Start((fun _ -> handleLoop state agent), cancellationTokenSource.Token)
+              CancellationSource = cancellationTokenSource }
+        agent
+
+    let stop { CancellationSource = cancelSource } =
+        cancelSource.Cancel()
+
+    let post { Mailbox = agent } =
+        agent.Post
+        
+    let postAfter { Mailbox = agent } msg (timeout : TimeSpan) =
         Async.Start(async { 
             do! Async.Sleep(timeout.TotalMilliseconds |> int)
             agent.Post msg
         })
         
-    let postAndReply (agent : Agent<'a>) msg =
-        agent.PostAndReply msg
+    let postAndReply { Mailbox = agent } =
+        agent.PostAndReply
 
 type SeqNumber =
     private | SeqNumber of uint64
