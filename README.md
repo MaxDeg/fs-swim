@@ -33,14 +33,10 @@ let exec args =
 
 let remoteNode = sprintf "%s:%i"
 
-let execOtherNode port =
-    remoteNode "127.0.0.1" 1337
-    |> sprintf "%s %s" port
-    |> exec
-
 exec "1337"
-execOtherNode "1338"
-execOtherNode "1339"
-execOtherNode "1340"
-execOtherNode "1341"
+
+for i in 1..7 do
+    remoteNode "127.0.0.1" 1337
+    |> sprintf "%i %s" (1337 + i)
+    |> exec
 ```
