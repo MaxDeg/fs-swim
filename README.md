@@ -1,5 +1,5 @@
 # fs-swim
-## Swim protocol implementation in F#
+## Swim protocol implementation
 
 This repository contains a implementation of Swim protocol (<https://www.cs.cornell.edu/~asdas/research/dsn02-swim.pdf>) in F#.
 
