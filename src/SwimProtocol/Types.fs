@@ -3,18 +3,14 @@
 open System
 open System.Threading
 
-type Agent<'a> = 
-    private { Mailbox : MailboxProcessor<'a>
-              CancellationSource : CancellationTokenSource }
+type Agent<'a> = MailboxProcessor<'a>
 
 [<RequireQualifiedAccess>]
 module Agent =
     let spawn (state : 's) handler =
-        let cancellationTokenSource = new CancellationTokenSource()
-
-        let rec handleLoop state' agent = async {
+        let rec handleLoop state' (agent : Agent<'a>) = async {
             try
-                let! msg = agent.Mailbox.Receive()
+                let! msg = agent.Receive()
                 let state' = handler agent state' msg
                 return! handleLoop state' agent
             with e ->
@@ -22,24 +18,18 @@ module Agent =
                 return! handleLoop state' agent
         }
         
-        let rec agent =
-            { Mailbox = MailboxProcessor<'a>.Start((fun _ -> handleLoop state agent), cancellationTokenSource.Token)
-              CancellationSource = cancellationTokenSource }
-        agent
-
-    let stop { CancellationSource = cancelSource } =
-        cancelSource.Cancel()
-
-    let post { Mailbox = agent } =
+        Agent<'a>.Start(handleLoop state)
+    
+    let post (agent : Agent<'a>) =
         agent.Post
         
-    let postAfter { Mailbox = agent } msg (timeout : TimeSpan) =
+    let postAfter (agent : Agent<'a>) msg (timeout : TimeSpan) =
         Async.Start(async { 
             do! Async.Sleep(timeout.TotalMilliseconds |> int)
             agent.Post msg
         })
         
-    let postAndReply { Mailbox = agent } =
+    let postAndReply (agent : Agent<'a>) =
         agent.PostAndReply
 
 type SeqNumber =
